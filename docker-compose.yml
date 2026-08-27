@@ -1,0 +1,33 @@
+services:
+  cardvault:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      # both default to paths inside the image, which get wiped every time
+      # the container is recreated -- pointing them at the mounted volume
+      # below is what makes your collection survive restarts/updates.
+      - CARDVAULT_DB_PATH=/app/data/cardvault.db
+      # eBay Developer Program app keys (Browse API) -- see README for how
+      # to get these. Required; search/add/refresh return a clear error
+      # until they're set.
+      - EBAY_CLIENT_ID=${EBAY_CLIENT_ID}
+      - EBAY_CLIENT_SECRET=${EBAY_CLIENT_SECRET}
+      # optional: eBay Partner Network campaign ID -- if set, listing links
+      # carry your affiliate tag.
+      - EBAY_EPN_CAMPAIGN_ID=${EBAY_EPN_CAMPAIGN_ID:-}
+      # how often (in seconds) prices refresh automatically for every card
+      # across every profile -- 3600 = hourly. Set to 0 to disable and only
+      # refresh via the button. See main.py's auto-refresh section for the
+      # eBay free-tier call-budget math this should be tuned against.
+      - CARDVAULT_AUTO_REFRESH_SECONDS=3600
+      # set true once this is actually served over HTTPS (direct TLS, or a
+      # reverse proxy in front terminating it) -- leave false for
+      # LAN-only/http:// access, a Secure cookie is silently dropped there.
+      - CARDVAULT_COOKIE_SECURE=false
+    volumes:
+      # a directory mount, not individual files -- Docker will happily
+      # create ./data on the host the first time this runs.
+      - ./data:/app/data
+    restart: unless-stopped
+    stop_grace_period: 30s

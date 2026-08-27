@@ -1,0 +1,39 @@
+# For TrueNAS SCALE's Apps -> Discover -> Custom App (⋮) -> "Install via YAML".
+#
+# Unlike the original CardVault, there is no build step here at all --
+# `image:` points straight at a container GitHub Actions already built and
+# published to GHCR (see .github/workflows/docker-publish.yml). Installing
+# or updating this app on TrueNAS never involves cloning the repo or
+# running `docker build` on the box.
+#
+# Replace YOUR_POOL below with your actual pool name before pasting this in.
+
+services:
+  cardvault:
+    image: ghcr.io/txrn26/cardvault2:latest
+    ports:
+      - "8000:8000"
+    environment:
+      - CARDVAULT_DB_PATH=/app/data/cardvault.db
+      # eBay Developer Program app keys (Browse API) -- required. See
+      # README for how to get these (free, self-serve).
+      - EBAY_CLIENT_ID=YOUR_EBAY_CLIENT_ID
+      - EBAY_CLIENT_SECRET=YOUR_EBAY_CLIENT_SECRET
+      # optional -- eBay Partner Network campaign ID, tags listing links
+      # for affiliate commission. Leave blank to skip.
+      - EBAY_EPN_CAMPAIGN_ID=
+      # how often (in seconds) prices refresh automatically for every
+      # card across every profile -- 3600 = hourly. Set to 0 to disable
+      # and only refresh via the button. See main.py's auto-refresh
+      # section for the eBay free-tier call-budget math this should be
+      # tuned against.
+      - CARDVAULT_AUTO_REFRESH_SECONDS=3600
+      # set true once this is reachable over HTTPS (e.g. behind Nginx
+      # Proxy Manager / Cloudflare / Tailscale doing TLS) -- leave false
+      # for plain http://<ip>:8000, a Secure cookie would silently break
+      # login there.
+      - CARDVAULT_COOKIE_SECURE=false
+    volumes:
+      - /mnt/YOUR_POOL/apps/cardvault2/data:/app/data
+    restart: unless-stopped
+    stop_grace_period: 30s

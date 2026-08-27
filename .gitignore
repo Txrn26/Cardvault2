@@ -1,0 +1,13 @@
+# your actual collection lives here -- never commit it
+backend/cardvault.db
+
+# python
+__pycache__/
+*.pyc
+.venv/
+
+# local data folder used by docker-compose.yml
+data/
+
+# real eBay API keys -- .env.example is the template, this is your copy
+.env

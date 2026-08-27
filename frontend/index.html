@@ -1,0 +1,1532 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>CardVault</title>
+<link rel="manifest" href="/manifest.json">
+<meta name="theme-color" content="#15181f">
+<link rel="icon" href="/icon-192.png">
+<!-- iOS doesn't read manifest.json for Add to Home Screen -- these are the
+     equivalent tags it actually looks at -->
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="CardVault">
+<link rel="apple-touch-icon" href="/icon-192.png">
+<style>
+  :root {
+    --bg: #0d0f13;
+    --panel: #15181f;
+    --panel-2: #1b1f28;
+    --border: #262b36;
+    --text: #e7e9ee;
+    --muted: #8a90a0;
+    --accent: #d4a943;
+    --accent-dim: #8a723a;
+    --up: #4caf7d;
+    --down: #d4645a;
+    --mono: ui-monospace, "SF Mono", "Cascadia Mono", Consolas, "Liberation Mono", monospace;
+    --sans: -apple-system, "Segoe UI", "Inter", Roboto, Helvetica, Arial, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font-family: var(--sans); font-size: 14px; }
+  header {
+    position: sticky; top: 0; z-index: 10;
+    background: var(--panel); border-bottom: 1px solid var(--border);
+    padding: calc(16px + env(safe-area-inset-top)) calc(24px + env(safe-area-inset-right)) 16px calc(24px + env(safe-area-inset-left));
+    display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+  }
+  body { padding-bottom: env(safe-area-inset-bottom); }
+  header h1 { font-size: 17px; font-weight: 700; letter-spacing: 0.02em; margin: 0; display: flex; align-items: center; gap: 8px; }
+  header h1 .mark { color: var(--accent); }
+  .totals { display: flex; gap: 18px; margin-left: 8px; flex-wrap: wrap; }
+  .totals .stat { text-align: left; }
+  .totals .stat .label { color: var(--muted); font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; }
+  .totals .stat .value { font-family: var(--mono); font-size: 14px; color: var(--text); }
+  .spacer { flex: 1; }
+  .whoami { font-size: 12px; color: var(--muted); }
+  .last-refreshed { font-size: 11px; color: var(--muted); white-space: nowrap; }
+  .whoami .badge { color: var(--accent); font-weight: 600; }
+  select, button, input {
+    background: var(--panel-2); border: 1px solid var(--border); color: var(--text);
+    padding: 8px 14px; border-radius: 6px; font-size: 13px; cursor: pointer; font-family: var(--sans);
+  }
+  input { cursor: text; }
+  select:hover, button:hover { border-color: var(--accent-dim); }
+  button.primary { background: var(--accent); color: #1a1408; border-color: var(--accent); font-weight: 600; }
+  button.primary:hover { filter: brightness(1.08); }
+  button.danger { border-color: var(--down); color: var(--down); }
+  button.link { background: none; border: none; color: var(--muted); text-decoration: underline; padding: 4px; }
+  button.link:hover { color: var(--text); }
+  button:disabled { opacity: 0.5; cursor: default; }
+
+  nav.subnav { display: flex; align-items: center; gap: 4px; padding: 10px 24px; border-bottom: 1px solid var(--border); background: var(--bg); }
+  nav.subnav .tab { padding: 6px 14px; border-radius: 6px; cursor: pointer; font-size: 13px; color: var(--muted); }
+  nav.subnav .tab.active { background: var(--panel-2); color: var(--text); font-weight: 600; }
+  nav.subnav .tab:hover { color: var(--text); }
+
+  .folder-bar { display: flex; align-items: center; gap: 8px; padding: 10px 24px; flex-wrap: wrap; border-bottom: 1px solid var(--border); }
+  .folder-chip { padding: 5px 12px; border-radius: 999px; border: 1px solid var(--border); font-size: 12px; color: var(--muted); cursor: pointer; background: var(--panel); }
+  .folder-chip.active { background: var(--accent-dim); color: var(--text); border-color: var(--accent); }
+  .folder-chip.danger-chip { color: var(--down); border-color: var(--down); background: var(--panel); }
+  .folder-chip.danger-chip:hover { background: rgba(212, 100, 90, 0.12); }
+  .folder-chip:hover { color: var(--text); }
+
+  .search-bar { display: flex; align-items: center; gap: 8px; padding: 0 24px 12px; }
+  .search-bar input { flex: 1; max-width: 420px; }
+
+  main { padding: 24px; max-width: 1400px; margin: 0 auto; }
+  table { width: 100%; border-collapse: collapse; }
+  thead th {
+    text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em;
+    color: var(--muted); padding: 8px 10px; border-bottom: 1px solid var(--border);
+    position: sticky; top: 105px; background: var(--bg);
+  }
+  thead th.num { text-align: right; }
+  thead th.sortable { cursor: pointer; user-select: none; }
+  thead th.sortable:hover { color: var(--text); }
+  thead th .sort-arrow { margin-left: 3px; color: var(--accent); }
+  tbody tr { border-bottom: 1px solid var(--border); }
+  tbody tr:hover { background: var(--panel); }
+  tbody tr.selected { background: rgba(212, 169, 67, 0.08); }
+  td { padding: 10px; vertical-align: middle; }
+  td.num { text-align: right; font-family: var(--mono); }
+  td.checkbox-cell { width: 30px; }
+  td.mobile-toggle-cell { display: none; }
+  .mobile-only-btn { display: none; }
+  .admin-only { display: none; }
+  .card-cell { display: flex; align-items: center; gap: 10px; min-width: 240px; }
+  .card-cell img { width: 36px; height: 50px; object-fit: cover; border-radius: 3px; background: var(--panel-2); }
+  .card-cell .name { font-weight: 600; }
+  .card-cell .set { color: var(--muted); font-size: 12px; }
+  .card-link { color: var(--text); text-decoration: none; }
+  .card-link:hover { color: var(--accent); text-decoration: underline; }
+  .graded-badge { color: var(--accent); font-weight: 600; }
+  .curve { display: flex; align-items: flex-end; gap: 2px; height: 24px; }
+  .curve .bar { width: 5px; background: var(--accent-dim); border-radius: 1px; min-height: 2px; }
+  .curve .bar.top { background: var(--accent); }
+  .muted { color: var(--muted); }
+  .qty-badge { background: var(--panel-2); border: 1px solid var(--border); border-radius: 4px; padding: 1px 6px; font-family: var(--mono); font-size: 12px; }
+  .row-actions { display: flex; gap: 6px; }
+  .row-actions button { padding: 4px 8px; font-size: 12px; }
+  .empty-state { text-align: center; padding: 60px 20px; color: var(--muted); }
+  .empty-state .big { font-size: 15px; color: var(--text); margin-bottom: 6px; }
+
+  .bulk-bar {
+    display: none; align-items: center; gap: 12px; padding: 10px 14px; margin-bottom: 14px;
+    background: var(--panel-2); border: 1px solid var(--accent-dim); border-radius: 8px; font-size: 13px;
+  }
+  .bulk-bar.open { display: flex; }
+  .bulk-bar .count { color: var(--accent); font-weight: 600; }
+  .bulk-bar .spacer { flex: 1; }
+
+  .dash-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: 24px; }
+  .dash-card { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 16px; }
+  .dash-card .label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); margin-bottom: 6px; }
+  .dash-card .value { font-family: var(--mono); font-size: 22px; }
+  .dash-section { margin-bottom: 28px; }
+  .dash-section h2 { font-size: 13px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); margin: 0 0 12px; }
+  .dash-list { display: flex; flex-direction: column; gap: 1px; background: var(--border); border-radius: 8px; overflow: hidden; }
+  .dash-row { display: flex; align-items: center; gap: 12px; background: var(--panel); padding: 10px 14px; font-size: 13px; }
+  .dash-row .name { flex: 1; }
+  .dash-row .value { font-family: var(--mono); color: var(--accent); }
+  .dash-row img { width: 28px; height: 38px; object-fit: cover; border-radius: 3px; background: var(--panel-2); }
+
+  .overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.6); align-items: flex-start; justify-content: center; padding-top: 8vh; z-index: 50; }
+  #miniOverlay { z-index: 60; }
+  .overlay.open { display: flex; }
+  .modal { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; width: 640px; max-width: 92vw; max-height: 78vh; display: flex; flex-direction: column; }
+  #searchOverlay { padding-top: 0; align-items: stretch; }
+  #searchOverlay .modal-header { padding-top: calc(16px + env(safe-area-inset-top)); }
+  #searchOverlay .modal { width: 100%; max-width: none; height: 100vh; max-height: none; border-radius: 0; }
+  .modal-header { display: flex; align-items: center; gap: 10px; padding: 16px 18px; border-bottom: 1px solid var(--border); }
+  .modal-header input { flex: 1; }
+  /* overflow-x: hidden here is a deliberate backstop, not just cleanup --
+     a <select> has no natural width limit and will size to fit its widest
+     option (e.g. "2018 Panini Diamond Kings (Baseball)"), which without
+     this pushed the whole modal wider than the viewport and made the page
+     scroll sideways on mobile. */
+  .modal-body { overflow-y: auto; overflow-x: hidden; padding: 10px 18px 18px; }
+  .search-filters { display: none; gap: 8px; flex-wrap: wrap; padding-top: 10px; max-width: 100%; }
+  .search-filters.visible { display: flex; }
+  .search-filters select { font-size: 12px; padding: 5px 8px; max-width: 42vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .search-filters .filter-hint { font-size: 11px; color: var(--muted); align-self: center; }
+  /* a scrolling list, not a grid -- one row per result, image left, everything
+     else (title, grades, actions) stacked to the right. Same at every width;
+     there's no column count to get wrong on a phone this way. */
+  .result-grid { display: flex; flex-direction: column; gap: 10px; margin-top: 10px; }
+  .result-card { border: 1px solid var(--border); border-radius: 8px; padding: 10px; background: var(--panel-2); display: flex; gap: 12px; align-items: flex-start; }
+  .result-card img { width: 96px; flex-shrink: 0; aspect-ratio: 5/7; object-fit: cover; border-radius: 4px; background: #0a0b0e; }
+  .result-card .result-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+  .result-card .title { font-size: 13px; font-weight: 600; line-height: 1.3; }
+  .result-card .set-name { font-size: 11px; color: var(--muted); }
+  .result-card .source { font-size: 10px; color: var(--muted); }
+  .result-prices { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 3px 0; min-height: 24px; }
+  .result-prices .curve { flex-shrink: 0; }
+  .result-prices .grade-chip { font-size: 10px; color: var(--muted); white-space: nowrap; }
+  .result-prices .grade-chip .g { color: var(--text); }
+  .result-prices .grade-chip.primary .g { color: var(--accent); font-weight: 600; }
+  .result-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 2px; }
+  .result-card .detail-link { font-size: 11px; color: var(--accent); text-decoration: none; align-self: center; }
+  .result-card .detail-link:hover { text-decoration: underline; }
+  .result-actions button { width: auto; padding: 6px 10px; font-size: 12px; }
+  .result-actions button.wishlist-btn { background: var(--panel); border-color: var(--accent-dim); color: var(--accent); }
+  .result-actions button.wishlist-btn:hover { background: rgba(212, 169, 67, 0.1); }
+  .hint { color: var(--muted); font-size: 12px; padding: 4px 2px; }
+  .status-line { font-size: 12px; color: var(--muted); padding: 8px 0; }
+  input[type=file] { color: var(--muted); font-size: 12px; }
+  .error-text { color: var(--down); font-size: 12px; }
+
+  .mini-modal { width: 380px; }
+  .mini-modal .modal-body { display: flex; flex-direction: column; gap: 10px; }
+  .mini-modal input, .mini-modal select { width: 100%; }
+  .mini-modal .row { display: flex; gap: 8px; }
+  .mini-modal .row button { flex: 1; }
+  .mini-modal label { font-size: 12px; color: var(--muted); display: flex; align-items: center; gap: 6px; }
+
+  .admin-row { display: flex; align-items: center; gap: 10px; background: var(--panel-2); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; margin-bottom: 8px; }
+  .admin-row .name { font-weight: 600; flex: 1; }
+  .admin-row .badge { font-size: 10px; color: var(--accent); border: 1px solid var(--accent-dim); border-radius: 4px; padding: 1px 6px; }
+  .admin-row button { padding: 5px 9px; font-size: 12px; }
+
+  /* login screen */
+  #loginScreen {
+    display: flex; align-items: center; justify-content: center; min-height: 100vh; padding: 20px;
+  }
+  .login-card { width: 380px; max-width: 100%; background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 28px; }
+  .login-card h1 { font-size: 19px; margin: 0 0 6px; display: flex; align-items: center; gap: 8px; }
+  .login-card .sub { color: var(--muted); font-size: 12px; margin-bottom: 20px; }
+  .login-card select, .login-card input { width: 100%; margin-bottom: 10px; }
+  .login-card button.primary { width: 100%; padding: 10px; }
+  .login-card .hint { text-align: center; margin-top: 12px; }
+
+  /* ---------------- mobile ---------------- */
+  @media (max-width: 720px) {
+    body { font-size: 15px; }
+
+    header { padding: calc(10px + env(safe-area-inset-top)) calc(12px + env(safe-area-inset-right)) 10px calc(12px + env(safe-area-inset-left)); gap: 8px; }
+    header h1 { font-size: 15px; }
+    main { padding: 12px; }
+    nav.subnav { padding: 8px 12px; }
+    .folder-bar { padding: 8px 12px; }
+    .search-bar { padding: 0 12px 10px; }
+    .search-bar input { max-width: none; }
+
+    /* the 7-grade totals strip becomes a swipeable row instead of wrapping
+       into a wall of numbers */
+    .totals { flex-wrap: nowrap; overflow-x: auto; -webkit-overflow-scrolling: touch;
+      width: 100%; margin-left: 0; padding-bottom: 4px; }
+    .totals .stat { flex: 0 0 auto; }
+
+    .whoami { display: none; } /* redundant with the profile switcher on a small screen */
+
+    /* table -> stacked cards. Each <tr> becomes one card; each <td> becomes
+       a labeled row inside it, using the data-label attributes rendered
+       into the HTML for exactly this purpose. */
+    thead { display: none; }
+    table, tbody, tr, td { display: block; width: 100%; }
+    tbody tr {
+      border: 1px solid var(--border); border-radius: 10px; margin-bottom: 10px;
+      padding: 10px; background: var(--panel);
+    }
+    td {
+      display: flex; justify-content: space-between; align-items: center;
+      padding: 6px 2px; border: none; text-align: right;
+    }
+    td.num { text-align: right; }
+    td[data-label]::before {
+      content: attr(data-label); color: var(--muted); font-size: 11px;
+      text-transform: uppercase; letter-spacing: 0.04em; text-align: left; margin-right: 10px;
+    }
+    td.card-td { display: block; padding: 2px 2px 10px; border-bottom: 1px solid var(--border); margin-bottom: 6px; }
+    td.card-td::before { content: none; }
+    .card-cell { min-width: 0; }
+    .card-cell img { width: 44px; height: 60px; }
+    td.checkbox-cell { flex-direction: row-reverse; justify-content: flex-end; gap: 10px; }
+    td[data-label="Curve"] { justify-content: flex-start; }
+    td.secondary-grade { display: none; }
+    td.secondary-grade.expanded { display: flex; }
+    td.mobile-toggle-cell {
+      display: flex; justify-content: center; color: var(--accent); font-size: 12px;
+      padding: 8px 2px; cursor: pointer; border-top: 1px solid var(--border); margin-top: 4px;
+    }
+    .desktop-only-btn { display: none; }
+    .mobile-only-btn { display: inline-flex; align-items: center; justify-content: center; }
+    td[data-label="Actions"] .row-actions { width: 100%; justify-content: flex-end; }
+
+    /* modals go near-full-width instead of a fixed desktop size */
+    .modal, .mini-modal { width: 94vw; }
+    .modal-header { flex-wrap: wrap; }
+    .modal-header input { flex: 1 1 100%; min-width: 0; }
+
+    .dash-grid { grid-template-columns: repeat(2, 1fr); }
+
+    /* bigger touch targets */
+    button, select { padding: 10px 14px; font-size: 14px; }
+    input { padding: 10px 14px; font-size: 16px; }
+    .row-actions button { padding: 8px 10px; }
+
+    .bulk-bar { flex-wrap: wrap; }
+  }
+</style>
+</head>
+<body>
+
+<div id="loginScreen">
+  <div class="login-card">
+    <h1><span class="mark" style="color:var(--accent)">▣</span> CardVault</h1>
+    <div class="sub">Sign in.</div>
+    <input id="loginUsername" type="text" placeholder="Username" autocomplete="username">
+    <input id="loginPassword" type="password" placeholder="Password" autocomplete="current-password">
+    <button class="primary" onclick="doLogin()">Log In</button>
+    <div id="loginError" class="error-text" style="margin-top:8px"></div>
+    <div class="hint">First time on an account? Enter any password -- it becomes that account's password.</div>
+  </div>
+</div>
+
+<div id="app" style="display:none">
+  <header>
+    <h1><span class="mark">▣</span> CardVault</h1>
+    <div id="profileSwitcherSlot"></div>
+    <div class="totals" id="totals"></div>
+    <div class="spacer"></div>
+    <div class="whoami" id="whoami"></div>
+    <button class="desktop-only-btn" onclick="openChangePassword()">Password</button>
+    <button id="adminBtn" class="desktop-only-btn admin-only" onclick="openAdmin()">Admin</button>
+    <label class="desktop-only-btn" style="display:flex;align-items:center;gap:8px;">
+      <button onclick="document.getElementById('csvInput').click()">Import CSV</button>
+      <input type="file" id="csvInput" accept=".csv" style="display:none" onchange="importCsv(event)">
+    </label>
+    <button onclick="openSearch()">+ Add Card</button>
+    <button class="primary" id="refreshBtn" onclick="refreshAll()">↻ Refresh Prices</button>
+    <span id="lastRefreshedLabel" class="last-refreshed"></span>
+    <button class="desktop-only-btn" onclick="doLogout()">Log Out</button>
+    <button id="mobileMenuBtn" class="mobile-only-btn" onclick="openMobileMenu()">⋮</button>
+  </header>
+
+  <nav class="subnav">
+    <div class="tab" id="tabDashboard" onclick="switchView('dashboard')">Dashboard</div>
+    <div class="tab active" id="tabCollection" onclick="switchView('collection')">Collection</div>
+    <div class="tab" id="tabWishlist" onclick="switchView('wishlist')">Wishlist</div>
+  </nav>
+
+  <div class="folder-bar" id="folderBar"></div>
+  <div class="search-bar" id="searchBarRow">
+    <input id="collectionSearch" placeholder="Search your collection by name or set..." oninput="onCollectionSearch(this.value)">
+    <button id="clearSearchBtn" onclick="clearCollectionSearch()" style="display:none">✕ Clear</button>
+  </div>
+
+  <main>
+    <div id="status" class="status-line"></div>
+
+    <div id="collectionView">
+      <div class="bulk-bar" id="bulkBar">
+        <span><span class="count" id="bulkCount">0</span> selected</span>
+        <div class="spacer"></div>
+        <select id="moveFolderSelect"></select>
+        <button onclick="moveSelected()">Move</button>
+        <button class="danger" onclick="deleteSelected()">Delete</button>
+        <button onclick="clearSelection()">Clear</button>
+      </div>
+
+      <table id="cardsTable" style="display:none">
+        <thead>
+          <tr>
+            <th class="checkbox-cell"><input type="checkbox" id="selectAll" onchange="toggleSelectAll(this.checked)"></th>
+            <th>Card</th>
+            <th class="num sortable" onclick="setSort('quantity')">Qty<span class="sort-arrow" id="arrow-quantity"></span></th>
+            <th class="num sortable" onclick="setSort('Ungraded')">Ungraded<span class="sort-arrow" id="arrow-Ungraded"></span></th>
+            <th class="num sortable" onclick="setSort('Grade 7')">Grade 7<span class="sort-arrow" id="arrow-Grade 7"></span></th>
+            <th class="num sortable" onclick="setSort('Grade 8')">Grade 8<span class="sort-arrow" id="arrow-Grade 8"></span></th>
+            <th class="num sortable" onclick="setSort('Grade 9')">Grade 9<span class="sort-arrow" id="arrow-Grade 9"></span></th>
+            <th class="num sortable" onclick="setSort('Grade 9.5')">Grade 9.5<span class="sort-arrow" id="arrow-Grade 9.5"></span></th>
+            <th class="num sortable" onclick="setSort('PSA 10')">PSA 10<span class="sort-arrow" id="arrow-PSA 10"></span></th>
+            <th class="num sortable" onclick="setSort('BGS 10')">BGS 10<span class="sort-arrow" id="arrow-BGS 10"></span></th>
+            <th>Curve</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="cardsBody"></tbody>
+      </table>
+      <div class="empty-state" id="emptyState" style="display:none">
+        <div class="big">No cards yet</div>
+        <div>Import a collection CSV, or add cards one at a time.</div>
+      </div>
+    </div>
+
+    <div id="dashboardView" style="display:none"></div>
+  </main>
+</div>
+
+<div class="overlay" id="searchOverlay">
+  <div class="modal">
+    <div class="modal-header">
+      <input id="searchInput" placeholder="Search for a card, e.g. Bryce Harper Big Ticket Players" autocomplete="off">
+      <button onclick="triggerSearch()">Search</button>
+      <button onclick="closeSearch()">Close</button>
+    </div>
+    <div class="modal-body">
+      <div class="hint">Pick the exact card by comparing the image and set name -- then set quantity and add.</div>
+      <div id="searchFilters" class="search-filters">
+        <select id="filterCategory" onchange="onCategoryFilterChange()"><option value="">All Categories</option></select>
+        <select id="filterSet" onchange="applySearchFilters()"><option value="">All Sets</option></select>
+        <select id="filterYear" onchange="applySearchFilters()"><option value="">All Years</option></select>
+        <select id="sortBy" onchange="applySort()">
+          <option value="">Sort: Relevance</option>
+          <option value="PSA 10">Sort: PSA 10 Price (High-Low)</option>
+          <option value="Ungraded">Sort: Ungraded Price (High-Low)</option>
+        </select>
+        <span class="filter-hint" id="filterHint"></span>
+      </div>
+      <div id="searchResults" class="result-grid"></div>
+    </div>
+  </div>
+</div>
+
+<div class="overlay" id="miniOverlay">
+  <div class="modal mini-modal">
+    <div class="modal-header">
+      <div id="miniTitle" style="font-weight:600"></div>
+      <button onclick="closeMini()">Close</button>
+    </div>
+    <div class="modal-body" id="miniBody"></div>
+  </div>
+</div>
+
+<div class="overlay" id="adminOverlay">
+  <div class="modal" style="width:520px">
+    <div class="modal-header">
+      <div style="font-weight:600">Manage Profiles</div>
+      <button onclick="closeAdmin()">Close</button>
+    </div>
+    <div class="modal-body">
+      <button class="primary" style="width:100%;margin-bottom:12px" onclick="openNewProfile()">+ New Profile</button>
+      <div id="adminProfileList"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+const GRADES = ["Ungraded", "Grade 7", "Grade 8", "Grade 9", "Grade 9.5", "PSA 10", "BGS 10"];
+
+let state = {
+  me: null,           // {profile_id, name, is_admin}
+  profiles: [],        // full list (only meaningfully populated when admin)
+  viewingProfileId: null,
+  folders: [],
+  folderId: null,
+  cards: [],
+  totals: {},
+  view: 'collection',
+  selected: new Set(),
+  sortColumn: null,
+  sortDir: 1,
+  searchQuery: '',
+  cardStatus: 'owned',
+  expandedCards: new Set(),
+  lastRefreshedTicker: null,
+  autoPollTimer: null,
+};
+
+function fmt(v) { return v == null ? '<span class="muted">--</span>' : '$' + v.toFixed(2); }
+
+function curveSvg(prices) {
+  const vals = GRADES.map(g => prices[g] || 0);
+  const max = Math.max(...vals, 0.01);
+  return '<div class="curve">' + vals.map((v, i) =>
+    `<div class="bar ${i === vals.length - 1 || (v === max && v > 0) ? 'top' : ''}" style="height:${Math.max(2, (v / max) * 22)}px" title="${GRADES[i]}: $${v.toFixed(2)}"></div>`
+  ).join('') + '</div>';
+}
+function setStatus(msg) { document.getElementById('status').textContent = msg || ''; }
+
+async function af(url, opts) {
+  const res = await fetch(url, {credentials: 'same-origin', ...opts});
+  if (res.status === 401) {
+    clearInterval(state.lastRefreshedTicker);
+    clearInterval(state.autoPollTimer);
+    showLogin();
+    throw new Error('Not logged in');
+  }
+  return res;
+}
+
+// ---------- boot / login ----------
+
+async function boot() {
+  const res = await fetch('/api/me', {credentials: 'same-origin'});
+  if (res.status !== 200) { await showLogin(); return; }
+  state.me = await res.json();
+  await enterApp();
+}
+
+function showLogin() {
+  document.getElementById('app').style.display = 'none';
+  document.getElementById('loginScreen').style.display = 'flex';
+  document.getElementById('loginError').textContent = '';
+  document.getElementById('loginUsername').value = '';
+  document.getElementById('loginPassword').value = '';
+  document.getElementById('loginUsername').focus();
+}
+
+document.getElementById('loginUsername').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') document.getElementById('loginPassword').focus();
+});
+document.getElementById('loginPassword').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') doLogin();
+});
+
+async function doLogin() {
+  const username = document.getElementById('loginUsername').value.trim();
+  const password = document.getElementById('loginPassword').value;
+  if (!username || !password) {
+    document.getElementById('loginError').textContent = 'Enter a username and password.';
+    return;
+  }
+  const res = await fetch('/api/login', {
+    method: 'POST', credentials: 'same-origin', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({username, password})
+  });
+  if (!res.ok) {
+    const err = await res.json();
+    document.getElementById('loginError').textContent = err.detail || 'Login failed.';
+    return;
+  }
+  state.me = await res.json();
+  await enterApp();
+}
+
+async function doLogout() {
+  clearInterval(state.lastRefreshedTicker);
+  clearInterval(state.autoPollTimer);
+  await fetch('/api/logout', {method: 'POST', credentials: 'same-origin'});
+  state = {...state, me: null, cards: [], profiles: []};
+  await showLogin();
+}
+
+async function enterApp() {
+  document.getElementById('loginScreen').style.display = 'none';
+  document.getElementById('app').style.display = 'block';
+  document.getElementById('whoami').innerHTML =
+    `Signed in as <span class="badge">${state.me.name}${state.me.is_admin ? ' · admin' : ''}</span>`;
+  document.getElementById('adminBtn').classList.toggle('admin-only', !state.me.is_admin);
+
+  state.viewingProfileId = state.me.is_admin
+    ? (parseInt(localStorage.getItem('cardvault_view_profile_id')) || state.me.profile_id)
+    : state.me.profile_id;
+
+  state.cardStatus = 'owned';
+  state.view = 'collection';
+  document.getElementById('tabCollection').classList.add('active');
+  document.getElementById('tabWishlist').classList.remove('active');
+  document.getElementById('tabDashboard').classList.remove('active');
+  document.getElementById('collectionView').style.display = 'block';
+  document.getElementById('dashboardView').style.display = 'none';
+
+  if (state.me.is_admin) {
+    const res = await af('/api/profiles');
+    state.profiles = (await res.json()).profiles;
+  }
+  renderProfileSwitcher();
+  state.folderId = null;
+  await loadFolders();
+  await loadCards();
+
+  // keep "X minutes ago" ticking without needing new data
+  clearInterval(state.lastRefreshedTicker);
+  state.lastRefreshedTicker = setInterval(updateLastRefreshedLabel, 30000);
+  // pick up prices the server's own hourly auto-refresh changed while this
+  // tab just sat open, without requiring a manual reload
+  clearInterval(state.autoPollTimer);
+  state.autoPollTimer = setInterval(loadCards, 120000);
+}
+
+function renderProfileSwitcher() {
+  const slot = document.getElementById('profileSwitcherSlot');
+  if (!state.me.is_admin) {
+    slot.innerHTML = '';
+    return;
+  }
+  slot.innerHTML = `<select id="profileSelect" onchange="onProfileChange()">` +
+    state.profiles.map(p =>
+      `<option value="${p.id}" ${p.id === state.viewingProfileId ? 'selected' : ''}>${p.name}${p.is_admin ? ' (admin)' : ''}</option>`
+    ).join('') + `</select>`;
+}
+
+function onProfileChange() {
+  state.viewingProfileId = parseInt(document.getElementById('profileSelect').value);
+  localStorage.setItem('cardvault_view_profile_id', state.viewingProfileId);
+  state.folderId = null;
+  clearSelection();
+  loadFolders();
+  loadCards();
+}
+
+// ---------- change password ----------
+
+function openMobileMenu() {
+  openMini('Menu', `
+    <button style="width:100%" onclick="closeMini(); document.getElementById('csvInput').click()">Import CSV</button>
+    <button style="width:100%" onclick="closeMini(); openChangePassword()">Password</button>
+    ${state.me.is_admin ? '<button style="width:100%" onclick="closeMini(); openAdmin()">Admin</button>' : ''}
+    <button style="width:100%" class="danger" onclick="closeMini(); doLogout()">Log Out</button>
+  `);
+}
+
+function openChangePassword() {
+  openMini('Change your password', `
+    <input id="oldPw" type="password" placeholder="Current password">
+    <input id="newPw" type="password" placeholder="New password">
+    <input id="newPw2" type="password" placeholder="Confirm new password">
+    <div id="pwError" class="error-text"></div>
+    <div class="row"><button class="primary" onclick="submitChangePassword()">Update Password</button></div>
+  `);
+}
+
+async function submitChangePassword() {
+  const old_password = document.getElementById('oldPw').value;
+  const new_password = document.getElementById('newPw').value;
+  const confirm = document.getElementById('newPw2').value;
+  if (!new_password || new_password !== confirm) {
+    document.getElementById('pwError').textContent = "New passwords don't match.";
+    return;
+  }
+  const res = await af('/api/profiles/me/change-password', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({old_password, new_password})
+  });
+  if (!res.ok) {
+    const err = await res.json();
+    document.getElementById('pwError').textContent = err.detail || 'Could not change password.';
+    return;
+  }
+  closeMini();
+  setStatus('Password updated.');
+}
+
+// ---------- admin panel ----------
+
+function openAdmin() {
+  renderAdminList();
+  document.getElementById('adminOverlay').classList.add('open');
+}
+function closeAdmin() { document.getElementById('adminOverlay').classList.remove('open'); }
+document.getElementById('adminOverlay').addEventListener('click', (e) => {
+  if (e.target.id === 'adminOverlay') closeAdmin();
+});
+
+function renderAdminList() {
+  document.getElementById('adminProfileList').innerHTML = state.profiles.map(p => `
+    <div class="admin-row">
+      <div class="name">${p.name}</div>
+      ${p.is_admin ? '<span class="badge">admin</span>' : ''}
+      <button onclick="promptRename(${p.id}, '${p.name.replace(/'/g, "\\'")}')">Rename</button>
+      <button onclick="promptResetPassword(${p.id}, '${p.name.replace(/'/g, "\\'")}')">Reset PW</button>
+      <button onclick="toggleAdmin(${p.id}, ${!p.is_admin})">${p.is_admin ? 'Demote' : 'Make Admin'}</button>
+      <button class="danger" onclick="deleteProfile(${p.id}, '${p.name.replace(/'/g, "\\'")}')">Delete</button>
+    </div>
+  `).join('');
+}
+
+function promptRename(profileId, currentName) {
+  openMini(`Rename ${currentName}`, `
+    <input id="renameUsername" placeholder="New username" value="${currentName}">
+    <div id="renameError" class="error-text"></div>
+    <div class="row"><button class="primary" onclick="submitRename(${profileId})">Save</button></div>
+  `);
+  document.getElementById('renameUsername').focus();
+  document.getElementById('renameUsername').select();
+}
+
+async function submitRename(profileId) {
+  const new_username = document.getElementById('renameUsername').value.trim();
+  if (!new_username) return;
+  const res = await af(`/api/admin/profiles/${profileId}/rename`, {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({new_username})
+  });
+  if (!res.ok) {
+    const err = await res.json();
+    document.getElementById('renameError').textContent = err.detail || 'Could not rename.';
+    return;
+  }
+  closeMini();
+  const r2 = await af('/api/profiles');
+  state.profiles = (await r2.json()).profiles;
+  renderAdminList();
+  renderProfileSwitcher();
+  if (profileId === state.me.profile_id) {
+    state.me.name = new_username;
+    document.getElementById('whoami').innerHTML =
+      `Signed in as <span class="badge">${state.me.name}${state.me.is_admin ? ' · admin' : ''}</span>`;
+  }
+}
+
+function promptResetPassword(profileId, name) {
+  openMini(`Reset password for ${name}`, `
+    <input id="resetPw" type="password" placeholder="New password">
+    <div id="resetError" class="error-text"></div>
+    <div class="row"><button class="primary" onclick="submitResetPassword(${profileId})">Set Password</button></div>
+  `);
+}
+async function submitResetPassword(profileId) {
+  const new_password = document.getElementById('resetPw').value;
+  if (!new_password) return;
+  const res = await af(`/api/admin/profiles/${profileId}/reset-password`, {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({new_password})
+  });
+  if (!res.ok) {
+    const err = await res.json();
+    document.getElementById('resetError').textContent = err.detail || 'Failed.';
+    return;
+  }
+  closeMini();
+  setStatus('Password reset.');
+}
+
+async function toggleAdmin(profileId, makeAdmin) {
+  const res = await af(`/api/admin/profiles/${profileId}/set-admin`, {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({is_admin: makeAdmin})
+  });
+  if (!res.ok) { const err = await res.json(); alert(err.detail); return; }
+  const r2 = await af('/api/profiles');
+  state.profiles = (await r2.json()).profiles;
+  renderAdminList();
+  renderProfileSwitcher();
+}
+
+async function deleteProfile(profileId, name) {
+  if (!confirm(`Delete profile "${name}" and everything in it? This can't be undone.`)) return;
+  const res = await af(`/api/admin/profiles/${profileId}`, {method: 'DELETE'});
+  if (!res.ok) { const err = await res.json(); alert(err.detail); return; }
+  const r2 = await af('/api/profiles');
+  state.profiles = (await r2.json()).profiles;
+  renderAdminList();
+  if (state.viewingProfileId === profileId) {
+    state.viewingProfileId = state.me.profile_id;
+    renderProfileSwitcher();
+    await loadFolders();
+    await loadCards();
+  }
+}
+
+function openNewProfile() {
+  openMini('New account', `
+    <input id="miniProfileName" placeholder="Username, e.g. Dad">
+    <label><input type="checkbox" id="miniProfileAdmin" style="width:auto"> Give this account admin rights</label>
+    <div class="row"><button class="primary" onclick="createProfile()">Create</button></div>
+  `);
+  document.getElementById('miniProfileName').focus();
+}
+
+async function createProfile() {
+  const name = document.getElementById('miniProfileName').value.trim();
+  const is_admin = document.getElementById('miniProfileAdmin').checked;
+  if (!name) return;
+  const res = await af('/api/admin/profiles', {
+    method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({name, is_admin})
+  });
+  if (!res.ok) {
+    const err = await res.json();
+    alert(err.detail || 'Could not create profile');
+    return;
+  }
+  closeMini();
+  const r2 = await af('/api/profiles');
+  state.profiles = (await r2.json()).profiles;
+  renderProfileSwitcher();
+  if (document.getElementById('adminOverlay').classList.contains('open')) renderAdminList();
+}
+
+// ---------- mini modal ----------
+
+function openMini(title, bodyHtml) {
+  document.getElementById('miniTitle').textContent = title;
+  document.getElementById('miniBody').innerHTML = bodyHtml;
+  document.getElementById('miniOverlay').classList.add('open');
+}
+function closeMini() { document.getElementById('miniOverlay').classList.remove('open'); }
+document.getElementById('miniOverlay').addEventListener('click', (e) => {
+  if (e.target.id === 'miniOverlay') closeMini();
+});
+
+// ---------- view switching ----------
+
+async function switchView(view) {
+  setStatus('');
+  state.view = view;
+  document.getElementById('tabCollection').classList.toggle('active', view === 'collection');
+  document.getElementById('tabWishlist').classList.toggle('active', view === 'wishlist');
+  document.getElementById('tabDashboard').classList.toggle('active', view === 'dashboard');
+
+  const showTable = view === 'collection' || view === 'wishlist';
+  document.getElementById('collectionView').style.display = showTable ? 'block' : 'none';
+  document.getElementById('dashboardView').style.display = view === 'dashboard' ? 'block' : 'none';
+  document.getElementById('folderBar').style.display = showTable ? 'flex' : 'none';
+  document.getElementById('searchBarRow').style.display = showTable ? 'flex' : 'none';
+
+  if (showTable) {
+    const newStatus = view === 'wishlist' ? 'wanted' : 'owned';
+    if (state.cardStatus !== newStatus) {
+      state.cardStatus = newStatus;
+      state.folderId = null;
+      clearSelection();
+      await loadFolders();
+      await loadCards();
+    }
+  } else if (view === 'dashboard') {
+    // dashboard always reflects what you OWN, regardless of which tab
+    // was open last -- otherwise navigating Wishlist -> Dashboard directly
+    // would show wishlist items as if they were owned totals
+    if (state.cardStatus !== 'owned') {
+      state.cardStatus = 'owned';
+      await loadCards();
+    }
+    renderDashboard();
+  }
+}
+
+// ---------- folders ----------
+
+async function loadFolders() {
+  const res = await af('/api/folders?profile_id=' + state.viewingProfileId);
+  state.folders = (await res.json()).folders;
+  renderFolderBar();
+}
+
+function renderFolderBar() {
+  const bar = document.getElementById('folderBar');
+  const chips = [`<div class="folder-chip ${state.folderId === null ? 'active' : ''}" onclick="selectFolder(null)">All Cards</div>`];
+  for (const f of state.folders) {
+    chips.push(`<div class="folder-chip ${state.folderId === f.id ? 'active' : ''}" onclick="selectFolder(${f.id})">${f.name}</div>`);
+  }
+  chips.push(`<div class="folder-chip" onclick="openNewFolder()">+ New Folder</div>`);
+  if (state.folderId !== null) {
+    const current = state.folders.find(f => f.id === state.folderId);
+    if (current) {
+      chips.push(`<div class="folder-chip danger-chip" onclick="deleteFolder(${current.id}, '${current.name.replace(/'/g, "\\'")}')">🗑 Delete "${current.name}"</div>`);
+    }
+  }
+  bar.innerHTML = chips.join('');
+
+  const moveSel = document.getElementById('moveFolderSelect');
+  moveSel.innerHTML = '<option value="">No folder</option>' +
+    state.folders.map(f => `<option value="${f.id}">${f.name}</option>`).join('');
+}
+
+async function deleteFolder(folderId, name) {
+  if (!confirm(`Delete the folder "${name}"? Cards inside it won't be deleted -- they'll just move back to "All Cards".`)) return;
+  await af(`/api/folders/${folderId}?profile_id=${state.viewingProfileId}`, {method: 'DELETE'});
+  state.folderId = null;
+  await loadFolders();
+  await loadCards();
+}
+
+function selectFolder(id) {
+  state.folderId = id;
+  clearSelection();
+  renderFolderBar();
+  renderCards();
+}
+
+function openNewFolder() {
+  openMini('New folder', `
+    <input id="miniFolderName" placeholder="e.g. Sports Cards, TCG">
+    <div class="row"><button class="primary" onclick="createFolder()">Create</button></div>
+  `);
+  document.getElementById('miniFolderName').focus();
+}
+
+async function createFolder() {
+  const name = document.getElementById('miniFolderName').value.trim();
+  if (!name) return;
+  await af('/api/folders', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({profile_id: state.viewingProfileId, name})
+  });
+  closeMini();
+  await loadFolders();
+}
+
+// ---------- cards ----------
+
+async function loadCards() {
+  const res = await af(`/api/cards?profile_id=${state.viewingProfileId}&status=${state.cardStatus}`);
+  const data = await res.json();
+  state.cards = data.cards;
+  state.totals = data.totals;
+  renderTotals();
+  renderCards();
+  updateLastRefreshedLabel();
+  if (state.view === 'dashboard') renderDashboard();
+}
+
+function formatRelativeTime(isoString) {
+  const then = new Date(isoString);
+  const diffSec = Math.floor((Date.now() - then.getTime()) / 1000);
+  if (diffSec < 60) return 'just now';
+  const diffMin = Math.floor(diffSec / 60);
+  if (diffMin < 60) return `${diffMin} minute${diffMin === 1 ? '' : 's'} ago`;
+  const diffHour = Math.floor(diffMin / 60);
+  if (diffHour < 24) return `${diffHour} hour${diffHour === 1 ? '' : 's'} ago`;
+  const diffDay = Math.floor(diffHour / 24);
+  return `${diffDay} day${diffDay === 1 ? '' : 's'} ago`;
+}
+
+function updateLastRefreshedLabel() {
+  const timestamps = state.cards.map(c => c.last_updated).filter(Boolean);
+  const label = document.getElementById('lastRefreshedLabel');
+  if (!timestamps.length) {
+    label.textContent = '';
+    return;
+  }
+  const mostRecent = timestamps.reduce((a, b) => (a > b ? a : b));
+  label.textContent = `Last refreshed ${formatRelativeTime(mostRecent)}`;
+  label.title = new Date(mostRecent).toLocaleString();
+}
+
+function renderTotals() {
+  document.getElementById('totals').innerHTML = GRADES.map(g =>
+    `<div class="stat"><div class="label">${g}</div><div class="value">$${(state.totals[g] || 0).toFixed(2)}</div></div>`
+  ).join('');
+}
+
+function visibleCards() {
+  let cards = state.folderId === null ? state.cards : state.cards.filter(c => c.folder_id === state.folderId);
+
+  if (state.searchQuery) {
+    const q = state.searchQuery.toLowerCase();
+    cards = cards.filter(c =>
+      (c.title || '').toLowerCase().includes(q) || (c.set_name || '').toLowerCase().includes(q)
+    );
+  }
+
+  if (state.sortColumn) {
+    cards = [...cards].sort((a, b) => {
+      const av = state.sortColumn === 'quantity' ? a.quantity : (a.prices[state.sortColumn] ?? -1);
+      const bv = state.sortColumn === 'quantity' ? b.quantity : (b.prices[state.sortColumn] ?? -1);
+      return (av - bv) * state.sortDir;
+    });
+  }
+  return cards;
+}
+
+function onCollectionSearch(value) {
+  state.searchQuery = value.trim();
+  document.getElementById('clearSearchBtn').style.display = state.searchQuery ? 'inline-block' : 'none';
+  renderCards();
+}
+
+function clearCollectionSearch() {
+  state.searchQuery = '';
+  document.getElementById('collectionSearch').value = '';
+  document.getElementById('clearSearchBtn').style.display = 'none';
+  renderCards();
+}
+
+function toggleCardExpanded(id) {
+  if (state.expandedCards.has(id)) state.expandedCards.delete(id);
+  else state.expandedCards.add(id);
+  renderCards();
+}
+
+function setSort(column) {
+  if (state.sortColumn === column) { state.sortDir *= -1; }
+  else { state.sortColumn = column; state.sortDir = -1; }
+  document.querySelectorAll('.sort-arrow').forEach(el => el.textContent = '');
+  document.getElementById('arrow-' + column).textContent = state.sortDir === 1 ? '▲' : '▼';
+  renderCards();
+}
+
+function renderCards() {
+  const table = document.getElementById('cardsTable');
+  const empty = document.getElementById('emptyState');
+  const body = document.getElementById('cardsBody');
+  const cards = visibleCards();
+
+  if (!state.cards.length) {
+    table.style.display = 'none';
+    empty.innerHTML = state.cardStatus === 'wanted'
+      ? `<div class="big">Nothing on your wishlist yet</div><div>Search for a card and tap "Save to Wishlist" to track something you don't own yet.</div>`
+      : `<div class="big">No cards yet</div><div>Import a collection CSV, or add cards one at a time.</div>`;
+    empty.style.display = 'block';
+    return;
+  }
+  if (!cards.length) {
+    table.style.display = 'none';
+    empty.innerHTML = `<div class="big">No matches</div><div>Nothing in this view matches "${state.searchQuery}". Try a different search, or clear it.</div>`;
+    empty.style.display = 'block';
+    return;
+  }
+  table.style.display = 'table';
+  empty.style.display = 'none';
+
+  body.innerHTML = cards.map(c => `
+    <tr class="${state.selected.has(c.id) ? 'selected' : ''}">
+      <td class="checkbox-cell" data-label="Select"><input type="checkbox" ${state.selected.has(c.id) ? 'checked' : ''} onchange="toggleSelect(${c.id}, this.checked)"></td>
+      <td class="card-td">
+        <div class="card-cell">
+          <img src="${c.image_url || ''}" onerror="this.style.visibility='hidden'">
+          <div>
+            <div class="name"><a href="${c.product_url}" target="_blank" rel="noopener" class="card-link">${c.title}</a></div>
+            <div class="set">${c.set_name || ''}${c.graded_as && c.graded_as !== 'Ungraded' ? ` · <span class="graded-badge">${c.graded_as}</span>` : ''}</div>
+          </div>
+        </div>
+      </td>
+      <td class="num" data-label="Qty"><span class="qty-badge">${c.quantity}</span></td>
+      ${GRADES.map(g => {
+        const isPrimary = g === 'Ungraded' || g === 'PSA 10';
+        const cls = isPrimary ? 'num' : `num secondary-grade${state.expandedCards.has(c.id) ? ' expanded' : ''}`;
+        return `<td class="${cls}" data-label="${g}">${fmt(c.prices[g])}</td>`;
+      }).join('')}
+      <td class="mobile-toggle-cell" onclick="toggleCardExpanded(${c.id})">${state.expandedCards.has(c.id) ? '▴ Fewer grades' : '▾ More grades'}</td>
+      <td data-label="Curve">${curveSvg(c.prices)}</td>
+      <td data-label="Actions">
+        <div class="row-actions">
+          <button onclick="openEditCard(${c.id})" title="Edit quantity/grade">✎</button>
+          <button onclick="moveCardStatus(${c.id})" title="${state.cardStatus === 'wanted' ? 'Move to Collection' : 'Move to Wishlist'}">${state.cardStatus === 'wanted' ? '📥' : '🔖'}</button>
+          <button onclick="refreshOne(${c.id})" title="Refresh this card">↻</button>
+          <button onclick="deleteCard(${c.id})" title="Remove">✕</button>
+        </div>
+      </td>
+    </tr>
+  `).join('');
+
+  updateBulkBar();
+}
+
+// ---------- selection ----------
+
+function toggleSelect(id, checked) {
+  if (checked) state.selected.add(id); else state.selected.delete(id);
+  updateBulkBar();
+  renderCards();
+}
+function toggleSelectAll(checked) {
+  const ids = visibleCards().map(c => c.id);
+  if (checked) ids.forEach(id => state.selected.add(id));
+  else ids.forEach(id => state.selected.delete(id));
+  renderCards();
+}
+function clearSelection() { state.selected.clear(); updateBulkBar(); renderCards(); }
+function updateBulkBar() {
+  const bar = document.getElementById('bulkBar');
+  const n = state.selected.size;
+  document.getElementById('bulkCount').textContent = n;
+  bar.classList.toggle('open', n > 0);
+}
+
+async function moveSelected() {
+  const folderVal = document.getElementById('moveFolderSelect').value;
+  const folder_id = folderVal === '' ? null : parseInt(folderVal);
+  await af('/api/cards/move', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({profile_id: state.viewingProfileId, card_ids: [...state.selected], folder_id})
+  });
+  clearSelection();
+  await loadCards();
+}
+
+async function deleteSelected() {
+  if (!confirm(`Remove ${state.selected.size} card(s) from your collection?`)) return;
+  for (const id of state.selected) {
+    await af(`/api/cards/${id}?profile_id=${state.viewingProfileId}`, {method: 'DELETE'});
+  }
+  clearSelection();
+  await loadCards();
+}
+
+// ---------- refresh / delete single ----------
+
+async function refreshAll() {
+  const btn = document.getElementById('refreshBtn');
+  btn.disabled = true;
+  setStatus('Refreshing prices -- this respects a polite rate limit, so it can take a while for a large collection...');
+  try {
+    const res = await af('/api/refresh', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({profile_id: state.viewingProfileId})
+    });
+    const data = await res.json();
+    setStatus(`Refreshed ${data.updated.length} card(s).` + (data.failed.length ? ` ${data.failed.length} failed -- try refreshing them individually.` : ''));
+  } catch (e) {
+    setStatus('Refresh failed: ' + e);
+  } finally {
+    btn.disabled = false;
+    loadCards();
+  }
+}
+
+async function refreshOne(id) {
+  setStatus('Refreshing card...');
+  await af('/api/refresh', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({profile_id: state.viewingProfileId, card_id: id})
+  });
+  setStatus('');
+  loadCards();
+}
+
+async function deleteCard(id) {
+  if (!confirm('Remove this card from your collection?')) return;
+  await af(`/api/cards/${id}?profile_id=${state.viewingProfileId}`, {method: 'DELETE'});
+  loadCards();
+}
+
+async function moveCardStatus(id) {
+  const newStatus = state.cardStatus === 'wanted' ? 'owned' : 'wanted';
+  const res = await af(`/api/cards/${id}/status`, {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({profile_id: state.viewingProfileId, status: newStatus})
+  });
+  if (!res.ok) {
+    const err = await res.json();
+    alert(err.detail || 'Could not move that card.');
+    return;
+  }
+  setStatus(newStatus === 'owned' ? 'Moved to your collection.' : 'Moved to your wishlist.');
+  loadCards();
+}
+
+function openEditCard(id) {
+  const c = state.cards.find(c => c.id === id);
+  if (!c) return;
+  const gradeOptions = GRADES.map(g =>
+    `<option value="${g}" ${c.graded_as === g ? 'selected' : ''}>${g}</option>`
+  ).join('');
+  openMini(`Edit "${c.title}"`, `
+    <label style="display:block;margin-bottom:4px">Quantity you own</label>
+    <input id="editQty" type="number" min="0" value="${c.quantity}">
+    <label style="display:block;margin:10px 0 4px">Graded as</label>
+    <select id="editGrade">${gradeOptions}</select>
+    <div id="editError" class="error-text"></div>
+    <div class="row" style="margin-top:10px"><button class="primary" onclick="submitEditCard(${id})">Save</button></div>
+  `);
+}
+
+async function submitEditCard(id) {
+  const quantity = parseInt(document.getElementById('editQty').value, 10);
+  const graded_as = document.getElementById('editGrade').value;
+  if (isNaN(quantity) || quantity < 0) {
+    document.getElementById('editError').textContent = 'Quantity must be 0 or more.';
+    return;
+  }
+  const res = await af(`/api/cards/${id}`, {
+    method: 'PATCH', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({profile_id: state.viewingProfileId, quantity, graded_as})
+  });
+  if (!res.ok) {
+    const err = await res.json();
+    document.getElementById('editError').textContent = err.detail || 'Could not save.';
+    return;
+  }
+  closeMini();
+  loadCards();
+}
+
+// ---------- csv import ----------
+
+async function importCsv(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  setStatus(`Importing ${file.name} -- matching each card against eBay, this takes a bit...`);
+  const formData = new FormData();
+  formData.append('file', file);
+  formData.append('profile_id', state.viewingProfileId);
+  const res = await af('/api/cards/import', {method: 'POST', body: formData});
+  const data = await res.json();
+  setStatus(`Imported ${data.added.length} card(s).` + (data.failed.length ? ` ${data.failed.length} couldn't be matched: ${data.failed.slice(0,5).join(', ')}${data.failed.length > 5 ? '...' : ''}` : ''));
+  event.target.value = '';
+  loadCards();
+}
+
+// ---------- search / add ----------
+
+function openSearch() {
+  document.getElementById('searchOverlay').classList.add('open');
+  document.getElementById('searchInput').value = '';
+  document.getElementById('searchResults').innerHTML = '';
+  document.getElementById('searchFilters').classList.remove('visible');
+  ['filterCategory', 'filterSet', 'filterYear'].forEach(id => {
+    const el = document.getElementById(id);
+    el._lastValues = null;
+    el._pendingRebuild = null;
+    el._pendingOptions = null;
+  });
+  document.getElementById('filterCategory').innerHTML = '<option value="">All Categories</option>';
+  document.getElementById('filterSet').innerHTML = '<option value="">All Sets</option>';
+  document.getElementById('filterYear').innerHTML = '<option value="">All Years</option>';
+  document.getElementById('sortBy').value = '';
+  document.getElementById('searchInput').focus();
+}
+function closeSearch() { document.getElementById('searchOverlay').classList.remove('open'); }
+
+document.getElementById('searchInput').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') triggerSearch();
+});
+
+function triggerSearch() {
+  const q = document.getElementById('searchInput').value.trim();
+  if (q.length < 3) {
+    // blank box -- only allowed as a deliberate "browse a set/year" action,
+    // and only once 2+ filters are picked (never just 1, e.g. Year alone --
+    // that's "every card from that year" with nothing else narrowing it,
+    // which is both a huge unfocused result set and a lot more scraping
+    // than a normal search). The filters themselves only exist because a
+    // prior search already populated them, so this is really "re-search
+    // narrower on what you just noticed," not a from-scratch browse mode.
+    const cat = document.getElementById('filterCategory').value;
+    const set = document.getElementById('filterSet').value;
+    const year = document.getElementById('filterYear').value;
+    if ([cat, set, year].filter(Boolean).length >= 2) {
+      // Set already reads as "YYYY Brand Product" -- Category isn't real
+      // search text (it's our own derived label, not the site's
+      // vocabulary), so it only counts toward the 2-filter requirement and
+      // keeps narrowing the results afterward the same way it already does.
+      runSearch([set, year].filter(Boolean).join(' ').trim());
+      return;
+    }
+    document.getElementById('searchResults').innerHTML =
+      '<div class="hint">Type at least 3 characters, or leave it blank and select 2 or more filters (Category/Set/Year) to browse instead.</div>';
+    return;
+  }
+  runSearch(q);
+}
+
+async function runSearch(q) {
+  document.getElementById('searchFilters').classList.remove('visible');
+  document.getElementById('searchResults').innerHTML = '<div class="hint">Searching -- this can take 15-30s, it\'s waiting for real results to load...</div>';
+  const res = await af('/api/search?q=' + encodeURIComponent(q));
+  const data = await res.json();
+  const results = data.results || [];
+  if (!results.length) {
+    document.getElementById('searchResults').innerHTML = '<div class="hint">No matches. Try a shorter or differently worded query.</div>';
+    return;
+  }
+  // eBay listings don't carry a separate "set" field the way PriceCharting
+  // product pages did -- year is pulled straight out of the title instead
+  // (most listing titles lead with it, e.g. "2026 Topps Chrome ..."). Set
+  // itself isn't available, so that filter stays empty (harmless -- the
+  // dropdown just shows "All Sets" with nothing else to pick).
+  results.forEach(r => { r.year = (r.title || '').match(/\b(19|20)\d{2}\b/)?.[0] || ''; });
+
+  document.getElementById('searchResults').innerHTML = results.map((r, i) => `
+    <div class="result-card" data-idx="${i}" data-set="${r.set_name || ''}" data-year="${r.year}" data-category="${r.category || ''}">
+      <img src="${r.image_url_large || r.image_url || ''}" data-fallback="${r.image_url || ''}" onerror="handleSearchImgError(this)">
+      <div class="result-info">
+        <div class="title">${r.title}</div>
+        <div class="set-name">${r.set_name || ''}</div>
+        <div class="source">${r.source}${r.price != null ? ' -- listed ' + fmt(r.price) : ''}</div>
+        <div class="result-prices" id="result-prices-${i}"><span class="hint" style="padding:0;">Loading prices...</span></div>
+        <div class="result-actions">
+          <a class="detail-link" href="${r.url}" target="_blank" rel="noopener">View listing ↗</a>
+          <button onclick="addFromSearch(${i}, 'owned')">+ Add to collection</button>
+          <button class="wishlist-btn" onclick="addFromSearch(${i}, 'wanted')">🔖 Save to Wishlist</button>
+        </div>
+      </div>
+    </div>
+  `).join('');
+  window._searchResults = results;
+  state.searchGen = (state.searchGen || 0) + 1;
+
+  // year and category are both known immediately now (eBay returns
+  // category on every search result, unlike the old per-result detail
+  // fetch this used to wait on) -- only the per-grade price chips still
+  // stream in afterward, one result at a time.
+  [...new Set(results.map(r => r.category).filter(Boolean))].forEach(addCategoryFacetOption);
+  updateSetOptions();
+  populateSelect('filterYear', 'All Years', [...new Set(results.map(r => r.year).filter(Boolean))].sort().reverse());
+  document.getElementById('searchFilters').classList.add('visible');
+  applySearchFilters();
+
+  loadSearchDetails(results, state.searchGen);
+}
+
+function populateSelect(id, allLabel, values) {
+  const el = document.getElementById(id);
+  // rebuilding a <select>'s options while it's open/focused resets the
+  // native picker's scroll position (confirmed on iOS Safari) -- as
+  // results stream in this could otherwise happen dozens of times over
+  // one search. Skip the rebuild while focused and stash it for the blur
+  // handler below to apply once they're done scrolling through it.
+  if (document.activeElement === el) {
+    el._pendingRebuild = { allLabel, values };
+    return;
+  }
+  if (JSON.stringify(values) === JSON.stringify(el._lastValues || [])) return; // nothing actually changed
+  el._lastValues = values;
+  const current = el.value;
+  el.innerHTML = `<option value="">${allLabel}</option>` + values.map(v => `<option value="${v}">${v}</option>`).join('');
+  if (values.includes(current)) el.value = current;
+}
+
+// Set (rebuilt wholesale as categories resolve) and Category (options
+// appended one at a time) both mutate while the search is in progress --
+// either one could be open when that happens. Flush anything that was
+// deferred once the user closes the picker, instead of leaving it stale.
+['filterCategory', 'filterSet'].forEach(id => {
+  document.getElementById(id).addEventListener('blur', function () {
+    if (this._pendingRebuild) {
+      const { allLabel, values } = this._pendingRebuild;
+      this._pendingRebuild = null;
+      populateSelect(id, allLabel, values);
+    }
+    if (this._pendingOptions && this._pendingOptions.length) {
+      this._pendingOptions.forEach(cat => {
+        const opt = document.createElement('option');
+        opt.value = cat;
+        opt.textContent = cat;
+        this.appendChild(opt);
+      });
+      this._pendingOptions = [];
+    }
+  });
+});
+
+function updateSetOptions() {
+  // sets are scoped to the selected category (if any) -- a set that only
+  // belongs to another category shouldn't show up once you've narrowed
+  // down to e.g. "Baseball Cards". Reads straight from the rendered
+  // cards' data-* attributes rather than the results array, so it stays
+  // correct as categories keep arriving asynchronously.
+  const cat = document.getElementById('filterCategory').value;
+  const cards = [...document.querySelectorAll('.result-card')];
+  const sets = [...new Set(
+    cards.filter(c => !cat || c.dataset.category === cat).map(c => c.dataset.set).filter(Boolean)
+  )].sort();
+  populateSelect('filterSet', 'All Sets', sets);
+}
+
+function onCategoryFilterChange() {
+  updateSetOptions();
+  applySearchFilters();
+}
+
+function addCategoryFacetOption(category) {
+  if (!category) return;
+  const el = document.getElementById('filterCategory');
+  const pending = el._pendingOptions || [];
+  if ([...el.options].some(o => o.value === category) || pending.includes(category)) return;
+  if (document.activeElement === el) {
+    el._pendingOptions = [...pending, category];
+    return;
+  }
+  const opt = document.createElement('option');
+  opt.value = category;
+  opt.textContent = category;
+  el.appendChild(opt);
+}
+
+function applySearchFilters() {
+  const cat = document.getElementById('filterCategory').value;
+  const set = document.getElementById('filterSet').value;
+  const year = document.getElementById('filterYear').value;
+  const cards = [...document.querySelectorAll('.result-card')];
+  let shown = 0;
+  cards.forEach(c => {
+    const matches = (!cat || c.dataset.category === cat)
+      && (!set || c.dataset.set === set)
+      && (!year || c.dataset.year === year);
+    c.style.display = matches ? '' : 'none';
+    if (matches) shown++;
+  });
+  const hint = document.getElementById('filterHint');
+  if (hint) hint.textContent = (cat || set || year) ? `Showing ${shown} of ${cards.length}` : '';
+}
+
+function applySort() {
+  const grade = document.getElementById('sortBy').value;
+  const container = document.getElementById('searchResults');
+  const cards = [...container.querySelectorAll('.result-card')];
+  if (!grade) {
+    // back to the order results actually came back in
+    cards.sort((a, b) => parseInt(a.dataset.idx) - parseInt(b.dataset.idx));
+  } else {
+    // a card whose price for this grade hasn't loaded yet (or genuinely
+    // has none) sorts last, not first -- treated as -1, below $0 cards
+    cards.sort((a, b) => {
+      const av = a.dataset[grade === 'PSA 10' ? 'psa10' : 'ungraded'];
+      const bv = b.dataset[grade === 'PSA 10' ? 'psa10' : 'ungraded'];
+      return (bv === undefined || bv === '' ? -1 : parseFloat(bv)) - (av === undefined || av === '' ? -1 : parseFloat(av));
+    });
+  }
+  // re-appending an already-attached node moves it rather than cloning it --
+  // keeps every card's live state (loaded image, loaded prices, listeners)
+  cards.forEach(c => container.appendChild(c));
+}
+
+function handleSearchImgError(img) {
+  // large thumbnail 404'd (unverified size guess) -- drop back to the
+  // known-good smaller one once, then give up and just hide it.
+  if (!img.dataset.triedFallback && img.dataset.fallback) {
+    img.dataset.triedFallback = '1';
+    img.src = img.dataset.fallback;
+  } else {
+    img.style.visibility = 'hidden';
+  }
+}
+
+function resultPriceHtml(prices) {
+  const chips = GRADES.map(g => {
+    if (prices[g] == null) return '';
+    const primary = g === 'Ungraded' || g === 'PSA 10';
+    return `<span class="grade-chip${primary ? ' primary' : ''}">${g}: <span class="g">${fmt(prices[g])}</span></span>`;
+  }).join('');
+  if (!chips) return '<span class="hint" style="padding:0;">No price data</span>';
+  return curveSvg(prices) + chips;
+}
+
+async function loadSearchDetails(results, gen) {
+  // one at a time, in list order -- matches the same polite pacing
+  // (REQUEST_DELAY) the backend already uses everywhere else it hits these
+  // sites, and fills in top-to-bottom as you'd actually scroll the list.
+  for (let i = 0; i < results.length; i++) {
+    if (state.searchGen !== gen) return; // superseded by a newer search
+    const priceEl = document.getElementById('result-prices-' + i);
+    const cardEl = document.querySelector(`.result-card[data-idx="${i}"]`);
+    try {
+      const res = await af('/api/search-detail?title=' + encodeURIComponent(results[i].title)
+        + '&url=' + encodeURIComponent(results[i].url));
+      const data = await res.json();
+      if (state.searchGen !== gen) return;
+      if (priceEl) priceEl.innerHTML = resultPriceHtml(data.prices || {});
+      if (cardEl) {
+        const prices = data.prices || {};
+        if (prices['PSA 10'] != null) cardEl.dataset.psa10 = prices['PSA 10'];
+        if (prices['Ungraded'] != null) cardEl.dataset.ungraded = prices['Ungraded'];
+        if (document.getElementById('sortBy').value) applySort();
+      }
+    } catch (e) {
+      if (state.searchGen === gen && priceEl) priceEl.innerHTML = '<span class="hint" style="padding:0;">Price lookup failed</span>';
+    }
+  }
+  // Set options used to be rebuilt here on every single result (up to ~60
+  // times a search) so a category filter picked early would stay scoped
+  // correctly as more results resolved -- but that meant rebuilding the
+  // dropdown's actual option list dozens of times over a search, and the
+  // focus-guard meant to protect an open picker from that wasn't reliable
+  // enough on a real device (jsdom can approximate document.activeElement,
+  // not how iOS Safari's native picker sheet actually relates to it).
+  // Rebuilding twice total -- once at the start, once here after
+  // everything's settled -- means far fewer chances to disrupt an open
+  // picker, at the cost of the Set list not growing live if you pick a
+  // Category before all results have resolved (it'll be complete once
+  // loading finishes).
+  if (state.searchGen === gen) {
+    updateSetOptions();
+    applySearchFilters();
+  }
+}
+
+async function addFromSearch(i, status) {
+  const r = window._searchResults[i];
+  let qty = 1;
+  if (status === 'owned') {
+    qty = parseInt(prompt(`How many copies of "${r.title}" do you own?`, '1') || '1', 10);
+    if (!qty || qty < 1) return;
+  }
+  const res = await af('/api/cards', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({
+      item_id: r.item_id, quantity: qty, profile_id: state.viewingProfileId,
+      folder_id: state.folderId, status,
+    })
+  });
+  if (!res.ok) {
+    const err = await res.json();
+    alert(err.detail || 'Could not add that card.');
+    return;
+  }
+  closeSearch();
+  setStatus(status === 'owned' ? `Added "${r.title}" to your collection.` : `Saved "${r.title}" to your wishlist.`);
+  loadCards();
+}
+
+document.getElementById('searchOverlay').addEventListener('click', (e) => {
+  if (e.target.id === 'searchOverlay') closeSearch();
+});
+
+// ---------- dashboard ----------
+
+function cardOwnedValue(c) {
+  // use the price for the grade actually owned, falling back to Ungraded
+  // if that specific grade has no price data yet
+  const price = c.prices[c.graded_as] ?? c.prices['Ungraded'] ?? 0;
+  return price * c.quantity;
+}
+
+function renderDashboard() {
+  const cards = state.cards;
+  const totalUnique = cards.length;
+  const totalQty = cards.reduce((s, c) => s + c.quantity, 0);
+  const ownedValue = cards.reduce((s, c) => s + cardOwnedValue(c), 0);
+  const psa10Value = state.totals['PSA 10'] || 0;
+
+  const byFolder = {};
+  const unfiled = {name: 'No folder', count: 0, value: 0};
+  for (const c of cards) {
+    const bucket = c.folder_id ? (byFolder[c.folder_id] ??= {name: c.folder_name, count: 0, value: 0}) : unfiled;
+    bucket.count += 1;
+    bucket.value += cardOwnedValue(c);
+  }
+  const folderRows = Object.values(byFolder);
+  if (unfiled.count) folderRows.push(unfiled);
+
+  const topCards = [...cards]
+    .map(c => ({...c, ownedValue: cardOwnedValue(c)}))
+    .sort((a, b) => b.ownedValue - a.ownedValue)
+    .slice(0, 10);
+
+  const recent = [...cards].sort((a, b) => (b.added_at || '').localeCompare(a.added_at || '')).slice(0, 5);
+
+  document.getElementById('dashboardView').innerHTML = `
+    <div class="dash-grid">
+      <div class="dash-card"><div class="label">Unique Cards</div><div class="value">${totalUnique}</div></div>
+      <div class="dash-card"><div class="label">Total Quantity</div><div class="value">${totalQty}</div></div>
+      <div class="dash-card"><div class="label">Owned Value (by actual grade)</div><div class="value">$${ownedValue.toFixed(2)}</div></div>
+      <div class="dash-card"><div class="label">If All Graded PSA 10</div><div class="value">$${psa10Value.toFixed(2)}</div></div>
+    </div>
+    <div class="dash-section">
+      <h2>By Folder</h2>
+      <div class="dash-list">
+        ${folderRows.length ? folderRows.map(f => `
+          <div class="dash-row">
+            <div class="name">${f.name}</div>
+            <div class="muted">${f.count} card${f.count === 1 ? '' : 's'}</div>
+            <div class="value">$${f.value.toFixed(2)}</div>
+          </div>
+        `).join('') : '<div class="dash-row"><div class="name muted">No folders yet</div></div>'}
+      </div>
+    </div>
+    <div class="dash-section">
+      <h2>Most Valuable</h2>
+      <div class="dash-list">
+        ${topCards.map(c => `
+          <div class="dash-row">
+            <img src="${c.image_url || ''}" onerror="this.style.visibility='hidden'">
+            <div class="name">${c.title}</div>
+            <div class="value">$${c.ownedValue.toFixed(2)}</div>
+          </div>
+        `).join('') || '<div class="dash-row"><div class="name muted">No cards yet</div></div>'}
+      </div>
+    </div>
+    <div class="dash-section">
+      <h2>Recently Added</h2>
+      <div class="dash-list">
+        ${recent.map(c => `
+          <div class="dash-row">
+            <img src="${c.image_url || ''}" onerror="this.style.visibility='hidden'">
+            <div class="name">${c.title}</div>
+            <div class="muted">${(c.added_at || '').slice(0, 10)}</div>
+          </div>
+        `).join('') || '<div class="dash-row"><div class="name muted">No cards yet</div></div>'}
+      </div>
+    </div>
+  `;
+}
+
+boot();
+</script>
+</body>
+</html>

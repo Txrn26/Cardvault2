@@ -1,0 +1,7 @@
+backend/cardvault.db
+backend/__pycache__/
+**/*.pyc
+.git/
+.github/
+data/
+.env
