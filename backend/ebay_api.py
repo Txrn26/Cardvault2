@@ -102,10 +102,39 @@ def _headers() -> dict:
     return headers
 
 
+# eBay's API License Agreement asks apps to cache locally and avoid
+# re-fetching data that was already just fetched -- this is what actually
+# does that, for every call this module makes (search, grade-price sweep,
+# single-item lookup). A short TTL, not a long-lived store: it's here to
+# collapse genuine near-duplicate calls (search-detail streaming through
+# visible results, a double-clicked refresh, two cards that happen to
+# share a title), not to serve stale prices. Capped in size so a
+# long-running process with heavy, varied search traffic can't grow this
+# unbounded.
+_CACHE_TTL_SECONDS = 300
+_CACHE_MAX_ENTRIES = 500
+_cache_lock = Lock()
+_cache: dict[tuple, tuple[float, dict]] = {}
+
+
 def _get(path: str, params: dict) -> dict:
+    key = (path, tuple(sorted(params.items())))
+    now = time.time()
+    with _cache_lock:
+        cached = _cache.get(key)
+        if cached and now - cached[0] < _CACHE_TTL_SECONDS:
+            return cached[1]
+
     resp = requests.get(f"{API_BASE}{path}", headers=_headers(), params=params, timeout=15)
     resp.raise_for_status()
-    return resp.json()
+    data = resp.json()
+
+    with _cache_lock:
+        if len(_cache) >= _CACHE_MAX_ENTRIES:
+            oldest_key = min(_cache, key=lambda k: _cache[k][0])
+            del _cache[oldest_key]
+        _cache[key] = (now, data)
+    return data
 
 
 # ---- grade classification from listing titles ----

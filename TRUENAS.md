@@ -19,7 +19,11 @@ usually approved within a business day:
 2. Once approved, go to **Application Keys** and create a **Production**
    keyset. Note the **App ID (Client ID)** and **Cert ID (Client Secret)**
    -- those are `EBAY_CLIENT_ID` / `EBAY_CLIENT_SECRET` below.
-3. *(Optional)* Sign up for the **eBay Partner Network**
+3. The keyset shows "currently disabled" until you subscribe to, or opt
+   out of, eBay's marketplace account-deletion notifications (a link
+   right on that page) -- **opt out**, this app never logs in as an eBay
+   user or stores eBay account data, only ever the one app-level token.
+4. *(Optional)* Sign up for the **eBay Partner Network**
    (<https://partnernetwork.ebay.com>) to get a Campaign ID -- if set,
    every card's listing link in the app carries your affiliate tag.
 

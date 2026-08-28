@@ -38,7 +38,15 @@ Program:
    application form describing your use case, unlike some pricing APIs.
 2. Under **Application Keys**, create a **Production** keyset. The **App
    ID** is `EBAY_CLIENT_ID`, the **Cert ID** is `EBAY_CLIENT_SECRET`.
-3. *(Optional)* Register for the **eBay Partner Network**
+3. **Before the Production keyset activates**, eBay requires every app to
+   either subscribe to, or explicitly opt out of, "marketplace account
+   deletion/closure" notifications (a link on the keyset page; it'll show
+   "currently disabled" until this is done). **Opt out** -- that
+   notification exists for apps that store data tied to individual eBay
+   users' accounts (via per-user OAuth), which this app doesn't do; it
+   only ever uses one app-level token, never logs in as an eBay user, and
+   never touches eBay account data.
+4. *(Optional)* Register for the **eBay Partner Network**
    (<https://partnernetwork.ebay.com>) and set `EBAY_EPN_CAMPAIGN_ID` --
    every card's "View listing" link then carries your affiliate tag, so a
    referred purchase earns a small commission.
@@ -176,6 +184,17 @@ it's worth a quick note to eBay describing the setup (one deployment,
 your own developer keys, per-search live listing data, no bulk
 redistribution or resale of raw data) and confirming it's fine at whatever
 scale you're aiming for.
+
+**Efficient use.** eBay's API License Agreement specifically calls out
+caching locally and not re-fetching data that was just fetched --
+`backend/ebay_api.py` caches every call for 5 minutes (a query repeated
+within that window, e.g. two visible search results sharing a title, or a
+double-clicked refresh, is served from that cache instead of hitting eBay
+again), and grade prices themselves are cached indefinitely between
+scheduled refreshes in the `current_prices` table rather than fetched on
+every page view. Neither is a magic compliance guarantee either, but it's
+the actual behavior eBay's terms ask for, not just a rate-limit
+workaround.
 
 ## Running it in Docker / TrueNAS
 
