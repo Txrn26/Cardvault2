@@ -12,7 +12,10 @@ file.
 ## 1. Get eBay API keys (once)
 
 Pricing comes from eBay's Browse API, not scraping -- free, self-serve,
-usually approved within a business day:
+usually approved within a business day. Worth doing a Sandbox smoke test
+locally first if you haven't already run this anywhere -- see the
+README's "Getting eBay API keys" for why and how (`EBAY_ENV=sandbox`);
+skip straight to Production keys below if you already have:
 
 1. Go to <https://developer.ebay.com>, click **Register**, sign up with a
    business email (a personal email works fine too for this).

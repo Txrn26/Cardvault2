@@ -36,9 +36,22 @@ Program:
 1. Register at <https://developer.ebay.com> with a business (or personal)
    email. Approval is typically same-day to ~1 business day -- no
    application form describing your use case, unlike some pricing APIs.
-2. Under **Application Keys**, create a **Production** keyset. The **App
+2. *(Optional but recommended for a first run)* Under **Application
+   Keys**, create a **Sandbox** keyset first and set `EBAY_ENV=sandbox`
+   with it. Sandbox has its own (higher) call limits and entirely fake
+   listings/prices -- it's a safe way to confirm the app can actually
+   authenticate and talk to eBay's API before pointing it at real
+   listings, but it can't tell you whether search results or prices make
+   sense, since none of the data is real. Whether the Browse API needs
+   anything beyond a plain Production keyset to go live (some of eBay's
+   Buy APIs need an additional partner/compatibility step, others don't)
+   wasn't fully resolvable from outside an actual developer account when
+   this was written -- creating the Production keyset in the next step is
+   the fastest way to get a real answer; eBay's own UI will say so if
+   there's an extra step for this specific API.
+3. Under **Application Keys**, create a **Production** keyset. The **App
    ID** is `EBAY_CLIENT_ID`, the **Cert ID** is `EBAY_CLIENT_SECRET`.
-3. **Before the Production keyset activates**, eBay requires every app to
+4. **Before the Production keyset activates**, eBay requires every app to
    either subscribe to, or explicitly opt out of, "marketplace account
    deletion/closure" notifications (a link on the keyset page; it'll show
    "currently disabled" until this is done). **Opt out** -- that
@@ -46,7 +59,7 @@ Program:
    users' accounts (via per-user OAuth), which this app doesn't do; it
    only ever uses one app-level token, never logs in as an eBay user, and
    never touches eBay account data.
-4. *(Optional)* Register for the **eBay Partner Network**
+5. *(Optional)* Register for the **eBay Partner Network**
    (<https://partnernetwork.ebay.com>) and set `EBAY_EPN_CAMPAIGN_ID` --
    every card's "View listing" link then carries your affiliate tag, so a
    referred purchase earns a small commission.

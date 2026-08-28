@@ -50,8 +50,26 @@ CLIENT_ID = os.environ.get("EBAY_CLIENT_ID")
 CLIENT_SECRET = os.environ.get("EBAY_CLIENT_SECRET")
 EPN_CAMPAIGN_ID = os.environ.get("EBAY_EPN_CAMPAIGN_ID")
 
-TOKEN_URL = "https://api.ebay.com/identity/v1/oauth2/token"
-API_BASE = "https://api.ebay.com/buy/browse/v1"
+# "sandbox" points this whole module at eBay's Sandbox instead of
+# Production -- a separate keyset (generated on the same Application Keys
+# page, Sandbox tab), separate call limits (higher than Production's, so
+# it's fine to hammer while testing), and entirely fake listings/prices.
+# Good for confirming the OAuth/request/response plumbing works at all
+# before pointing at real data; useless for judging whether the grade
+# bucketing or lot filtering actually behaves sensibly, since there's no
+# real card data in Sandbox to test that against -- that part only gets a
+# real answer against Production, ideally starting with a couple of small,
+# manually-checked searches rather than trusting it blind on day one.
+SANDBOX = os.environ.get("EBAY_ENV", "production").strip().lower() == "sandbox"
+
+TOKEN_URL = (
+    "https://api.sandbox.ebay.com/identity/v1/oauth2/token" if SANDBOX
+    else "https://api.ebay.com/identity/v1/oauth2/token"
+)
+API_BASE = (
+    "https://api.sandbox.ebay.com/buy/browse/v1" if SANDBOX
+    else "https://api.ebay.com/buy/browse/v1"
+)
 
 _token_lock = Lock()
 _token: str | None = None
@@ -232,6 +250,9 @@ _EPN_ROTATION_ID = "711-53200-19255-0"
 
 
 def card_search_url(query: str) -> str:
+    # Deliberately always the real site, even in Sandbox mode -- Sandbox
+    # is a dev-only testing toggle (see SANDBOX above), not something a
+    # real end user would ever be looking at this link under.
     plain = "https://www.ebay.com/sch/i.html?_nkw=" + urllib.parse.quote_plus(query)
     if not EPN_CAMPAIGN_ID:
         return plain
