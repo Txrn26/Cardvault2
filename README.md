@@ -150,6 +150,19 @@ for building it this way -- something this app is allowed to show to other
 people using it. All of this logic lives in `backend/ebay_api.py`; if
 eBay's response shape changes, that's the one file to look at.
 
+**Multi-card listings.** A "10-Card Lot PSA 9" selling for far more than
+any single card would badly skew that grade's median if it slipped into
+the same bucket as actual single-card listings. Two layers guard against
+that: the search only queries eBay's "Singles"/"Individual Cards"
+categories to begin with (not its separate lot/bundle categories), and a
+second title-text check (`_is_multi_card_listing`) drops anything that
+still reads as a lot ("lot of", "bundle", "complete set", "you pick",
+etc.) despite being categorized as a single. Neither is airtight -- a
+seller can always word a lot listing unusually -- but between the two,
+the common cases are covered. A price that looks obviously too high or
+too low for a card is worth a quick click-through to the actual listings
+behind it (same as you'd sanity-check any pricing tool).
+
 **Call budget.** eBay's APIs have no separate paid tier to buy your way
 past this -- API access itself is free either way, the only lever is a
 call-volume *limit*, not a price. Every new app starts at 5,000 calls/day,

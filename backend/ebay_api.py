@@ -210,6 +210,30 @@ def _extract_category(item: dict) -> str | None:
     return cats[0].get("categoryName") if cats else None
 
 
+# ---- multi-card listing (lot/bundle) filtering ----
+#
+# Two layers, because neither alone is reliable: CATEGORY_IDS above already
+# points at eBay's "Singles" categories rather than its separate lot/bundle
+# categories, but sellers regularly list a multi-card lot under Singles
+# anyway (mistake, or just for the extra search visibility) -- one of those
+# slipping into a grade's price bucket means that grade's "price" is really
+# a 10-card lot's price. This title-text check is the second layer, for
+# whatever the category filter alone doesn't catch. Not perfect either --
+# a title can always word this unusually -- but it catches the common
+# phrasing. Deliberately conservative (whole-word phrases, not bare
+# numbers) to avoid false-positives on a legitimate single card's title
+# (a card number, a print run, a year all contain digits too).
+_LOT_PATTERN = re.compile(
+    r"\b(lot of|lots of|card lot|\d+[\s-]?card\s+lot|bundle|you\s+pick|"
+    r"complete\s+set|full\s+set|set\s+of\s+\d|mixed\s+lot|assorted|wholesale)\b",
+    re.I,
+)
+
+
+def _is_multi_card_listing(title: str) -> bool:
+    return bool(_LOT_PATTERN.search(title))
+
+
 # ---- public API ----
 
 def search(query: str, limit: int = 60) -> list[dict]:
@@ -225,6 +249,8 @@ def search(query: str, limit: int = 60) -> list[dict]:
         title = item.get("title", "")
         if not title or not _row_matches_query(title, tokens):
             continue
+        if _is_multi_card_listing(title):
+            continue  # a lot/bundle isn't "one card" -- don't offer it to add as one
         image_url = _extract_image(item)
         results.append({
             "title": title,
@@ -256,6 +282,8 @@ def fetch_grade_prices(query: str, sample_size: int = 100) -> dict:
         title = item.get("title", "")
         if not title or not _row_matches_query(title, tokens):
             continue
+        if _is_multi_card_listing(title):
+            continue  # a lot's price would badly skew that grade's median
         grade = _classify_grade(title)
         price = _extract_price(item)
         if grade and price is not None:
