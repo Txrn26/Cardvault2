@@ -23,11 +23,12 @@ services:
       # for affiliate commission. Leave blank to skip.
       - EBAY_EPN_CAMPAIGN_ID=
       # how often (in seconds) prices refresh automatically for every
-      # card across every profile -- 3600 = hourly. Set to 0 to disable
-      # and only refresh via the button. See main.py's auto-refresh
-      # section for the eBay free-tier call-budget math this should be
-      # tuned against.
-      - CARDVAULT_AUTO_REFRESH_SECONDS=3600
+      # card across every profile -- 43200 = twice a day, chosen to
+      # comfortably fit eBay's free 5,000 calls/day tier for a
+      # decent-sized collection. Set to 0 to disable and only refresh via
+      # the button. See main.py's auto-refresh section for the
+      # call-budget math this should be tuned against.
+      - CARDVAULT_AUTO_REFRESH_SECONDS=43200
       # set true once this is reachable over HTTPS (e.g. behind Nginx
       # Proxy Manager / Cloudflare / Tailscale doing TLS) -- leave false
       # for plain http://<ip>:8000, a Secure cookie would silently break

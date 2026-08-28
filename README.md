@@ -142,14 +142,24 @@ for building it this way -- something this app is allowed to show to other
 people using it. All of this logic lives in `backend/ebay_api.py`; if
 eBay's response shape changes, that's the one file to look at.
 
-**Call budget.** The free eBay tier is 5,000 API calls/day, shared across
-the whole deployment. At one call per card per refresh, a 300-card
-collection on the default hourly auto-refresh (`CARDVAULT_AUTO_REFRESH_SECONDS=3600`)
-would use 300 × 24 = 7,200 calls/day -- over budget. Either lengthen the
-interval (e.g. every 6 hours: 300 × 4 = 1,200/day) or request eBay's free
-Application Growth Check once you know your real usage. The manual "↻
-Refresh Prices" button and the "+ Add Card" flow also spend from the same
-daily budget.
+**Call budget.** eBay's APIs have no separate paid tier to buy your way
+past this -- API access itself is free either way, the only lever is a
+call-volume *limit*, not a price. Every new app starts at 5,000 calls/day,
+shared across the whole deployment (not per-user). At one call per card
+per refresh, the default auto-refresh interval
+(`CARDVAULT_AUTO_REFRESH_SECONDS=43200`, twice a day) keeps a 300-card
+collection at 300 × 2 = 600 calls/day, with plenty of headroom left over
+for manual "↻ Refresh Prices" clicks and "+ Add Card" searches, which
+spend from the same daily budget. Set it back to `3600` (hourly) if you
+want fresher prices and have a small enough collection to still fit --
+300 cards hourly is 300 × 24 = 7,200/day, over budget; ~200 cards hourly
+(4,800/day) is right at the edge.
+
+If a collection genuinely outgrows 5,000/day, eBay's free **Application
+Growth Check** (Developer Program → your app → request a limit increase,
+describing real usage) can raise the ceiling substantially for an app
+that's already calling the API efficiently -- there's no paid plan to
+skip that step with, it's the only path past the default limit.
 
 ## A note on redistributing this
 
@@ -187,6 +197,37 @@ in this repo. Installing there is a straight YAML paste referencing a
 pre-built image on GHCR (`.github/workflows/docker-publish.yml` publishes
 it on every push) -- no cloning this repo onto the NAS, no building
 anything on the box itself.
+
+## Where else this can run
+
+The app itself is a plain, stateless container: one process, config via
+env vars, one directory (`/app/data`) it needs persisted. Nothing in it is
+TrueNAS-specific -- "Custom App" is just TrueNAS's name for "run this
+docker-compose file," so the same image and the same `docker-compose.yml`
+work unchanged on:
+
+- **A real web server / VPS** -- same `docker compose up -d`, with a
+  reverse proxy (Caddy, Nginx, Traefik) in front for TLS and a domain name,
+  and `CARDVAULT_COOKIE_SECURE=true` once that's in place.
+- **TrueNAS's official Apps catalog** (the ones with icons in the Apps
+  store, as opposed to Custom App) -- that's a separate packaging format
+  (a chart with `app.yaml`/`questions.yaml` for the nicer guided-install
+  UI) wrapping the *same* image, not a different build of the app. Worth
+  doing later if this becomes something you want a friendlier install
+  experience for; not needed for it to work today.
+- Any other Docker-based host -- Portainer, Coolify, a Kubernetes cluster,
+  Fly.io, Railway, a plain systemd + Docker box, etc. -- same image, same
+  env vars.
+
+The one real fork in the road as usage grows isn't the deployment
+mechanism, it's the database: SQLite (a single file, a single writer) is
+what makes "just a container + a data volume" this simple, and it's fine
+up through a household or a modest shared deployment. Genuinely many
+concurrent public users writing to their own collections at once is where
+that stops being true and Postgres becomes the right call -- see
+"Extending it" below. That's a `backend/database.py` change, not a
+redeploy-everything change; the rest of the app (including this same
+Docker packaging) doesn't need to be rebuilt around it.
 
 ## Extending it
 

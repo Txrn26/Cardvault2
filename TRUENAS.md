@@ -26,6 +26,31 @@ usually approved within a business day:
 Each install of this app (yours, or anyone else's if you hand it off)
 needs its own keys -- see the README for why.
 
+## Repo private, image private -- one thing to decide
+
+If this repo is private, the image GitHub Actions publishes inherits
+"private" too by default -- which means pulling it (from TrueNAS or
+anywhere else) needs registry credentials, not just the image name. Two
+ways to handle that, pick whichever fits:
+
+- **Keep the image private too**, and give TrueNAS credentials to pull it:
+  add a `pull_secret`/registry auth to the Custom App config, using a
+  GitHub Personal Access Token with `read:packages` scope as the password
+  and your GitHub username as the username. More setup, but nothing about
+  the code is exposed.
+- **Make just the image public** (Packages tab on the repo, or your
+  GitHub profile → Packages → package settings → Change visibility →
+  Public) once it's ready to actually deploy somewhere. The source stays
+  private; only the built container becomes anonymously pullable by
+  anyone who has (or guesses) its exact name -- not listed anywhere
+  public-facing, but not access-controlled either. **This is one-way --
+  GitHub doesn't allow taking a package back to private once it's been
+  made public.** `docker-compose.truenas.yaml` as written assumes this
+  option (no registry auth in it).
+
+Neither choice affects the app's own login system -- that's a separate
+layer either way (see README, "Accounts & access").
+
 ## 2. Create a dataset for its data
 
 In the TrueNAS UI: **Datasets** -> create a dataset under whichever pool

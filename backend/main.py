@@ -506,12 +506,15 @@ async def import_csv(file: UploadFile, profile_id: int = Form(...), sess: dict =
 # concept for a background job).
 #
 # Cost note: each card costs one eBay Browse API call per refresh cycle
-# (see ebay_api.py for why it's one call, not one per grade). The free
-# tier is 5,000 calls/day, app-wide -- so e.g. a 300-card collection on the
-# default hourly interval (300 * 24 = 7,200/day) would need either a
-# longer interval or eBay's free "Application Growth Check" to raise the
-# limit. Tune CARDVAULT_AUTO_REFRESH_SECONDS to your collection's size.
-AUTO_REFRESH_INTERVAL_SECONDS = int(os.environ.get("CARDVAULT_AUTO_REFRESH_SECONDS", "3600"))
+# (see ebay_api.py for why it's one call, not one per grade). The default
+# tier is 5,000 calls/day, app-wide -- so the default here is twice a day
+# (43200s) rather than hourly: a 300-card collection costs 300 * 2 = 600
+# calls/day that way, versus 7,200/day at hourly. Tune
+# CARDVAULT_AUTO_REFRESH_SECONDS to your collection's size -- eBay's free
+# "Application Growth Check" can raise the 5,000/day ceiling a lot for an
+# app that's already using it efficiently, if hourly ever matters more
+# than the extra step of requesting that.
+AUTO_REFRESH_INTERVAL_SECONDS = int(os.environ.get("CARDVAULT_AUTO_REFRESH_SECONDS", "43200"))
 
 
 def refresh_all_profiles_sync():
