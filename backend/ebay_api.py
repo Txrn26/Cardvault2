@@ -210,6 +210,38 @@ def _extract_category(item: dict) -> str | None:
     return cats[0].get("categoryName") if cats else None
 
 
+# ---- the link stored/shown for a card ----
+#
+# A single listing's URL isn't a stable thing to store long-term: eBay
+# listings end (sold, expired, pulled) and that page eventually stops
+# being useful, sometimes fairly soon. A card's title/finish/etc. as a
+# *search* stays live indefinitely and shows every current listing for it
+# instead of one (possibly already-gone) seller's -- so that's what gets
+# stored as the card's permanent link, built fresh from its title rather
+# than reusing whichever specific listing was picked at add-time. The
+# specific-listing links in search results (search()'s "View listing")
+# are a different, transient case -- fine to point at one exact listing
+# there, since that's about confirming you've got the right card/variant
+# in the moment of adding it, not something stored for later.
+#
+# eBay US's rotation ID (mkrid) below is a fixed constant published by
+# eBay for exactly this kind of manually-built tracking link -- if
+# MARKETPLACE is ever changed to a non-US site, this would need updating
+# to that marketplace's own rotation ID.
+_EPN_ROTATION_ID = "711-53200-19255-0"
+
+
+def card_search_url(query: str) -> str:
+    plain = "https://www.ebay.com/sch/i.html?_nkw=" + urllib.parse.quote_plus(query)
+    if not EPN_CAMPAIGN_ID:
+        return plain
+    return (
+        f"https://rover.ebay.com/rover/1/{_EPN_ROTATION_ID}/1"
+        f"?campid={urllib.parse.quote_plus(EPN_CAMPAIGN_ID)}&toolid=10001"
+        f"&mpre={urllib.parse.quote_plus(plain)}"
+    )
+
+
 # ---- multi-card listing (lot/bundle) filtering ----
 #
 # Two layers, because neither alone is reliable: CATEGORY_IDS above already
@@ -327,7 +359,7 @@ def fetch_card_details(item_id: str) -> dict | None:
         "set_name": item["set_name"],
         "category": item["category"],
         "image_url": item["image_url"],
-        "product_url": item["product_url"],
+        "product_url": card_search_url(base_title),
         "prices": prices,
     }
 

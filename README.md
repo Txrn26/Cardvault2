@@ -112,9 +112,15 @@ built to be reasonable for more than just one trusted household now.
   mark it as graded and which grade. Once set, that grade's price is what
   counts as the card's "owned value" everywhere (dashboard totals, most
   valuable list) instead of assuming Ungraded.
-- **Card title links out** -- click any card's name to open the eBay
-  listing it was added from in a new tab (affiliate-tagged, if
-  `EBAY_EPN_CAMPAIGN_ID` is set).
+- **Card title links out** -- click any card's name to open **live eBay
+  search results** for that card in a new tab (affiliate-tagged, if
+  `EBAY_EPN_CAMPAIGN_ID` is set), not the one specific listing it happened
+  to be added from. A single listing is a moment in time -- it sells, ends,
+  or gets pulled, and that page eventually stops being useful; a search
+  for the card stays live and current for as long as you own the card.
+  (In the search/add-card modal itself, "View listing" does point at one
+  specific listing -- that's the right thing there, since you're
+  confirming you've got the exact right card/variant before adding it.)
 - **Dashboard tab** -- unique card count, total quantity, owned value
   (based on each card's actual graded condition, defaulting to Ungraded
   until you mark it otherwise), value broken down by folder, your 10 most
