@@ -346,26 +346,16 @@ def _require_ebay_configured():
 
 @app.get("/api/search")
 def search_cards(q: str, sess: dict = Depends(current_session)):
+    """Results are already grouped into distinct cards with a full
+    grade-price table each -- see ebay_api.search()'s docstring. One
+    eBay API call total, regardless of how many groups/listings that
+    produces (a previous version fetched prices per visible result via a
+    separate /api/search-detail endpoint, now removed -- that cost one
+    extra call per result on screen)."""
     if not q or len(q.strip()) < 2:
         raise HTTPException(400, "Query too short")
     _require_ebay_configured()
     return {"results": ebay_api.search(q.strip())}
-
-
-@app.get("/api/search-detail")
-def search_detail(title: str, url: str | None = None, sess: dict = Depends(current_session)):
-    """Per-result grade prices for the search modal. Category/set/year are
-    already in the initial /api/search response (eBay includes them on
-    every listing, no extra call needed) -- this only fills in the
-    per-grade price chips, one result at a time as the list renders, same
-    pacing the old scraper used everywhere it hit an external site."""
-    _require_ebay_configured()
-    try:
-        prices = ebay_api.fetch_grade_prices(ebay_api.strip_grade_tokens(title) or title)
-    except Exception:
-        prices = {}
-    time.sleep(ebay_api.REQUEST_DELAY)
-    return {"prices": prices}
 
 
 @app.post("/api/cards")

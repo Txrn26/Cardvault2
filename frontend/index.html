@@ -1196,7 +1196,7 @@ function triggerSearch() {
 
 async function runSearch(q) {
   document.getElementById('searchFilters').classList.remove('visible');
-  document.getElementById('searchResults').innerHTML = '<div class="hint">Searching -- this can take 15-30s, it\'s waiting for real results to load...</div>';
+  document.getElementById('searchResults').innerHTML = '<div class="hint">Searching -- this can take a few seconds...</div>';
   const res = await af('/api/search?q=' + encodeURIComponent(q));
   const data = await res.json();
   const results = data.results || [];
@@ -1211,16 +1211,19 @@ async function runSearch(q) {
   // dropdown just shows "All Sets" with nothing else to pick).
   results.forEach(r => { r.year = (r.title || '').match(/\b(19|20)\d{2}\b/)?.[0] || ''; });
 
+  // Each result is already one distinct card (eBay listings grouped
+  // server-side) with its own grade-price table -- no separate per-result
+  // price lookup needed, unlike the old per-listing search-detail flow.
   document.getElementById('searchResults').innerHTML = results.map((r, i) => `
-    <div class="result-card" data-idx="${i}" data-set="${r.set_name || ''}" data-year="${r.year}" data-category="${r.category || ''}">
+    <div class="result-card" data-idx="${i}" data-set="${r.set_name || ''}" data-year="${r.year}" data-category="${r.category || ''}" data-psa10="${r.prices?.['PSA 10'] ?? ''}" data-ungraded="${r.prices?.['Ungraded'] ?? ''}">
       <img src="${r.image_url_large || r.image_url || ''}" data-fallback="${r.image_url || ''}" onerror="handleSearchImgError(this)">
       <div class="result-info">
         <div class="title">${r.title}</div>
         <div class="set-name">${r.set_name || ''}</div>
-        <div class="source">${r.source}${r.price != null ? ' -- listed ' + fmt(r.price) : ''}</div>
-        <div class="result-prices" id="result-prices-${i}"><span class="hint" style="padding:0;">Loading prices...</span></div>
+        <div class="source">${r.source} -- based on ${r.listing_count} current listing${r.listing_count === 1 ? '' : 's'}</div>
+        <div class="result-prices">${resultPriceHtml(r.prices || {})}</div>
         <div class="result-actions">
-          <a class="detail-link" href="${r.url}" target="_blank" rel="noopener">View listing ↗</a>
+          <a class="detail-link" href="${r.url}" target="_blank" rel="noopener">View listings ↗</a>
           <button onclick="addFromSearch(${i}, 'owned')">+ Add to collection</button>
           <button class="wishlist-btn" onclick="addFromSearch(${i}, 'wanted')">🔖 Save to Wishlist</button>
         </div>
@@ -1230,17 +1233,12 @@ async function runSearch(q) {
   window._searchResults = results;
   state.searchGen = (state.searchGen || 0) + 1;
 
-  // year and category are both known immediately now (eBay returns
-  // category on every search result, unlike the old per-result detail
-  // fetch this used to wait on) -- only the per-grade price chips still
-  // stream in afterward, one result at a time.
   [...new Set(results.map(r => r.category).filter(Boolean))].forEach(addCategoryFacetOption);
   updateSetOptions();
   populateSelect('filterYear', 'All Years', [...new Set(results.map(r => r.year).filter(Boolean))].sort().reverse());
   document.getElementById('searchFilters').classList.add('visible');
   applySearchFilters();
-
-  loadSearchDetails(results, state.searchGen);
+  if (document.getElementById('sortBy').value) applySort();
 }
 
 function populateSelect(id, allLabel, values) {
@@ -1375,48 +1373,6 @@ function resultPriceHtml(prices) {
   }).join('');
   if (!chips) return '<span class="hint" style="padding:0;">No price data</span>';
   return curveSvg(prices) + chips;
-}
-
-async function loadSearchDetails(results, gen) {
-  // one at a time, in list order -- matches the same polite pacing
-  // (REQUEST_DELAY) the backend already uses everywhere else it hits these
-  // sites, and fills in top-to-bottom as you'd actually scroll the list.
-  for (let i = 0; i < results.length; i++) {
-    if (state.searchGen !== gen) return; // superseded by a newer search
-    const priceEl = document.getElementById('result-prices-' + i);
-    const cardEl = document.querySelector(`.result-card[data-idx="${i}"]`);
-    try {
-      const res = await af('/api/search-detail?title=' + encodeURIComponent(results[i].title)
-        + '&url=' + encodeURIComponent(results[i].url));
-      const data = await res.json();
-      if (state.searchGen !== gen) return;
-      if (priceEl) priceEl.innerHTML = resultPriceHtml(data.prices || {});
-      if (cardEl) {
-        const prices = data.prices || {};
-        if (prices['PSA 10'] != null) cardEl.dataset.psa10 = prices['PSA 10'];
-        if (prices['Ungraded'] != null) cardEl.dataset.ungraded = prices['Ungraded'];
-        if (document.getElementById('sortBy').value) applySort();
-      }
-    } catch (e) {
-      if (state.searchGen === gen && priceEl) priceEl.innerHTML = '<span class="hint" style="padding:0;">Price lookup failed</span>';
-    }
-  }
-  // Set options used to be rebuilt here on every single result (up to ~60
-  // times a search) so a category filter picked early would stay scoped
-  // correctly as more results resolved -- but that meant rebuilding the
-  // dropdown's actual option list dozens of times over a search, and the
-  // focus-guard meant to protect an open picker from that wasn't reliable
-  // enough on a real device (jsdom can approximate document.activeElement,
-  // not how iOS Safari's native picker sheet actually relates to it).
-  // Rebuilding twice total -- once at the start, once here after
-  // everything's settled -- means far fewer chances to disrupt an open
-  // picker, at the cost of the Set list not growing live if you pick a
-  // Category before all results have resolved (it'll be complete once
-  // loading finishes).
-  if (state.searchGen === gen) {
-    updateSetOptions();
-    applySearchFilters();
-  }
 }
 
 async function addFromSearch(i, status) {

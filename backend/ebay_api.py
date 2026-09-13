@@ -20,6 +20,18 @@ data, redistributable to other people using the app, and free.
 One search call per card (not one per grade) is a deliberate budget
 choice: eBay's free tier is 5,000 calls/day, app-wide. See README for the
 math on tuning CARDVAULT_AUTO_REFRESH_SECONDS to a collection's size.
+
+Search results are grouped, not raw: eBay has no catalog/product id the
+way PriceCharting did, so search() fetches one page of listings and
+collapses them into distinct "cards" by title (grade wording stripped
+out), each shown with its own grade-price table computed from exactly the
+listings already in hand -- one API call for the whole search, not one
+per result. Old versions of this module called fetch_grade_prices()
+separately for every visible search result (a "search-detail" endpoint,
+now removed); that gave a live-updating price per listing but cost as
+many calls as there were results on screen, and still showed one row per
+raw listing rather than one row per card the way the old PriceCharting
+catalog view did.
 """
 
 import base64
@@ -28,6 +40,7 @@ import re
 import statistics
 import time
 import urllib.parse
+from collections import Counter
 from threading import Lock
 
 import requests
@@ -300,61 +313,109 @@ def _is_multi_card_listing(title: str) -> bool:
     return bool(_LOT_PATTERN.search(title))
 
 
-# ---- public API ----
-
-def search(query: str, limit: int = 60) -> list[dict]:
-    """Search current eBay listings for trading cards matching query. Each
-    result is one specific listing (its own price/condition/seller) --
-    there's no PriceCharting-style single catalog page per card on eBay."""
-    tokens = _query_tokens(query)
-    data = _get("/item_summary/search", {
-        "q": query, "category_ids": CATEGORY_ID, "limit": min(limit, 200),
-    })
-    results = []
-    for item in data.get("itemSummaries", []):
-        title = item.get("title", "")
-        if not title or not _row_matches_query(title, tokens):
-            continue
-        if _is_multi_card_listing(title):
-            continue  # a lot/bundle isn't "one card" -- don't offer it to add as one
-        image_url = _extract_image(item)
-        results.append({
-            "title": title,
-            "set_name": None,  # eBay listings don't expose a clean "set" field
-            "url": item.get("itemAffiliateWebUrl") or item.get("itemWebUrl"),
-            "item_id": item.get("itemId"),
-            "image_url": image_url,
-            "image_url_large": image_url,
-            "category": _extract_category(item),
-            "price": _extract_price(item),
-            "source": "eBay",
-        })
-        if len(results) >= limit:
-            break
-    return results
-
-
-def fetch_grade_prices(query: str, sample_size: int = 100) -> dict:
-    """The per-grade price table for a card: one search, bucketed by grade
-    mentioned in each listing's title, median price per bucket. Used by
-    both search-detail (one card at a time, from the search modal) and
-    refresh (one card at a time, on a schedule)."""
-    tokens = _query_tokens(query)
-    data = _get("/item_summary/search", {
-        "q": query, "category_ids": CATEGORY_ID, "limit": sample_size,
-    })
+def _grade_price_table(items: list[dict]) -> dict:
+    """Median price per grade bucket, from a list of already-fetched,
+    already-filtered eBay item dicts (token match + lot filter both
+    applied by the caller). Pulled out on its own since both search()'s
+    per-group tables and fetch_grade_prices()'s single table need exactly
+    this same bucket-then-median step."""
     buckets: dict[str, list[float]] = {g: [] for g in GRADE_COLUMNS}
-    for item in data.get("itemSummaries", []):
-        title = item.get("title", "")
-        if not title or not _row_matches_query(title, tokens):
-            continue
-        if _is_multi_card_listing(title):
-            continue  # a lot's price would badly skew that grade's median
-        grade = _classify_grade(title)
+    for item in items:
+        grade = _classify_grade(item.get("title", ""))
         price = _extract_price(item)
         if grade and price is not None:
             buckets[grade].append(price)
     return {grade: round(statistics.median(prices), 2) for grade, prices in buckets.items() if prices}
+
+
+def _normalized_group_key(base_title: str) -> str:
+    """Collapses a grade-stripped title down to letters/digits/spaces so
+    trivial punctuation/whitespace differences between sellers ("PSA 10!"
+    vs "PSA10", extra spaces, a stray dash) don't split what's really the
+    same card into separate groups."""
+    return re.sub(r"[^a-z0-9]+", " ", base_title.lower()).strip()
+
+
+def _fetch_filtered_items(query: str, limit: int) -> list[dict]:
+    """One search call, with the token-match and lot filters already
+    applied -- the shared first step behind both search() and
+    fetch_grade_prices()."""
+    tokens = _query_tokens(query)
+    data = _get("/item_summary/search", {
+        "q": query, "category_ids": CATEGORY_ID, "limit": min(limit, 200),
+    })
+    items = []
+    for item in data.get("itemSummaries", []):
+        title = item.get("title", "")
+        if not title or not _row_matches_query(title, tokens):
+            continue
+        if _is_multi_card_listing(title):
+            continue  # a lot/bundle isn't "one card" -- exclude entirely
+        items.append(item)
+    return items
+
+
+# ---- public API ----
+
+def search(query: str, limit: int = 30, sample_size: int = 100) -> list[dict]:
+    """One row per distinct card, not one per raw eBay listing -- eBay has
+    no catalog/product page the way PriceCharting did, so "distinct card"
+    means grouping same-search listings by title with grade wording
+    stripped out, then giving each group its own grade-price table
+    (median per grade, from that group's own listings). One search call
+    total regardless of how many groups or listings that produces --
+    critical, since an earlier version of this ran an extra API call per
+    *visible result* to fill in prices, which could mean 60+ calls for a
+    single search."""
+    items = _fetch_filtered_items(query, sample_size)
+    groups: dict[str, dict] = {}
+    for item in items:
+        base_title = strip_grade_tokens(item.get("title", ""))
+        key = _normalized_group_key(base_title)
+        if not key:
+            continue
+        group = groups.setdefault(key, {"items": [], "base_title": base_title})
+        group["items"].append(item)
+
+    results = []
+    for group in groups.values():
+        group_items = group["items"]
+        # representative listing: whichever exact title wording is most
+        # common in this group (closest to "how most sellers word this
+        # card"), first-seen as the tiebreak -- just for the image/display
+        # title, the price table itself uses every listing in the group.
+        titles = [it.get("title", "") for it in group_items]
+        rep_title = Counter(titles).most_common(1)[0][0]
+        rep_item = next(it for it in group_items if it.get("title") == rep_title)
+        image_url = _extract_image(rep_item)
+        results.append({
+            "title": rep_title,
+            "set_name": None,  # eBay listings don't expose a clean "set" field
+            # a live search for this card, not one specific (eventually-gone)
+            # listing -- consistent with the permanent link stored on add,
+            # see card_search_url()'s comment below.
+            "url": card_search_url(group["base_title"]),
+            "item_id": rep_item.get("itemId"),
+            "image_url": image_url,
+            "image_url_large": image_url,
+            "category": _extract_category(rep_item),
+            "prices": _grade_price_table(group_items),
+            "listing_count": len(group_items),
+            "source": "eBay",
+        })
+    # most-listed first -- a card with 15 current listings is a much safer
+    # "yes, this is really it" match than one with a single oddly-worded ad
+    results.sort(key=lambda r: r["listing_count"], reverse=True)
+    return results[:limit]
+
+
+def fetch_grade_prices(query: str, sample_size: int = 100) -> dict:
+    """The per-grade price table for one specific card: one search,
+    bucketed by grade mentioned in each listing's title, median price per
+    bucket. Used by refresh (one card at a time, on a schedule) and by
+    add_card (via fetch_card_details, confirming the table against the
+    exact listing being added)."""
+    return _grade_price_table(_fetch_filtered_items(query, sample_size))
 
 
 def fetch_item(item_id: str) -> dict | None:
