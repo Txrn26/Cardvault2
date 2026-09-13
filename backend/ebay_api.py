@@ -144,7 +144,15 @@ def _get(path: str, params: dict) -> dict:
             return cached[1]
 
     resp = requests.get(f"{API_BASE}{path}", headers=_headers(), params=params, timeout=15)
-    resp.raise_for_status()
+    if not resp.ok:
+        # eBay's error body (a JSON array of {errorId, message, longMessage,
+        # parameters}) is far more useful than the bare status code --
+        # surface it in the exception instead of losing it to
+        # raise_for_status(), since that's what actually says *why* eBay
+        # rejected the request (bad category id, malformed filter, etc.).
+        raise RuntimeError(
+            f"eBay API {resp.status_code} for {path} params={params}: {resp.text[:2000]}"
+        )
     data = resp.json()
 
     with _cache_lock:
