@@ -335,18 +335,29 @@ def _grade_price_table(items: list[dict]) -> dict:
 # "2026 Topps Chrome - Future Stars JJ Wetherholt #FS-3 (RC)" are the same
 # card. Grouping instead needs *tolerant* matching (unordered token
 # overlap) -- but tolerant matching alone would also merge a numbered
-# "/75" parallel or a named finish like "Refractor"/"Purple Wave" into the
-# base card's group, silently pulling its price into (or out of) the
-# ordinary card's median. Two hard differentiators fix that: any purely
-# numeric token that appears in only one of the two titles (almost always
-# a print run number), and a small curated list of common parallel/finish
-# names. Neither list is exhaustive -- like the grade and lot-detection
-# patterns above, this is a heuristic over title text, not a real product
-# catalog, so an unlisted parallel name can still merge into a base card's
-# group; a price that looks off for what should be an ordinary listing is
-# worth a quick click into "View listings" to check.
+# "/75" parallel or a named finish like "Purple Wave" into the base
+# card's group, silently pulling its price into (or out of) the ordinary
+# card's median. Two hard differentiators fix that: any purely numeric
+# token that appears in only one of the two titles (almost always a
+# print run number), and a small curated list of parallel/finish names
+# that are specific enough sellers only use them for that actual variant.
+#
+# "Refractor" deliberately isn't in that list, despite being a real named
+# Topps Chrome parallel tier of its own -- in practice it's also common
+# generic flavor text sellers tack onto any shiny Chrome card (including
+# onto other named parallels, e.g. "Logofractor ... Refractor RC")
+# regardless of whether the card is actually that specific tier, so
+# forcing a split on it caused more false fragmentation (two wordings of
+# the same Logofractor card, kept apart) than it prevented. It's just an
+# ordinary token now, folded into the overlap ratio like anything else.
+#
+# Neither list is exhaustive -- like the grade and lot-detection patterns
+# above, this is a heuristic over title text, not a real product catalog,
+# so an unlisted parallel name can still merge into a base card's group;
+# a price that looks off for what should be an ordinary listing is worth
+# a quick click into "View listings" to check.
 _PARALLEL_KEYWORDS = {
-    "refractor", "xfractor", "superfractor", "negative", "negatives",
+    "xfractor", "superfractor", "negative", "negatives",
     "prizm", "prism", "atomic", "wave", "shimmer", "mojo", "holo",
     "holofoil", "rainbow", "foilboard", "kaboom", "downtown", "sparkle",
     "cracked", "ice", "mummy", "logofractor", "velocity", "independence",
