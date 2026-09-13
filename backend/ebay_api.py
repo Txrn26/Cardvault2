@@ -304,6 +304,7 @@ def card_search_url(query: str) -> str:
 # (a card number, a print run, a year all contain digits too).
 _LOT_PATTERN = re.compile(
     r"\b(lot of|lots of|card lot|\d+[\s-]?card\s+lot|bundle|you\s+pick|"
+    r"pick\s+(your|a)\s+card|choose\s+(your|a)\s+card|"
     r"complete\s+set|full\s+set|set\s+of\s+\d|mixed\s+lot|assorted|wholesale)\b",
     re.I,
 )
@@ -508,9 +509,11 @@ def fetch_grade_prices(query: str, sample_size: int = 200) -> dict:
 # grade (confirmed against Production: a just-released rookie with no
 # PSA 10 sales yet), leaving that grade blank. Instead of leaving it
 # blank, estimate it from *comparable* cards -- same year/manufacturer,
-# ideally same insert, across different players -- scaling this card's
-# own real Ungraded price by that comparable set's typical grade-premium
-# ratio. Deliberately does NOT try to strip a player's name out of a
+# ideally same insert, across different players, falling back to the
+# previous year (same manufacturer/insert) when the current year comes up
+# with nothing gradeable yet -- scaling this card's own real Ungraded
+# price by that comparable set's typical grade-premium ratio. Deliberately
+# does NOT try to strip a player's name out of a
 # title to find "the insert name" generically -- a 2-word Titlecase
 # insert name ("Future Stars") and a 2-word Titlecase player name are
 # structurally identical in plain text, so there's no reliable way to
@@ -627,7 +630,25 @@ def fill_missing_grades(
     signature = _comparable_signature(title)
     if not signature:
         return real_prices, set()
-    ratios = _get_ratio_profile(*signature)
+    year, manufacturer, insert = signature
+    ratios = _get_ratio_profile(year, manufacturer, insert)
+    if not ratios:
+        # A just-released year's cards can have essentially nothing graded
+        # industry-wide yet -- not just for this one card -- since
+        # professional grading takes weeks to months after a card's
+        # release (confirmed against Production: a "2026 Topps" sweep of
+        # 116 listings across 87 distinct cards had real Ungraded sales
+        # everywhere and not one graded sale anywhere). Falling back one
+        # year keeps the estimate scoped to the same manufacturer/insert
+        # rather than guessing from an unrelated product -- grade-premium
+        # *ratios* (not absolute prices) tend to hold up reasonably well
+        # year-over-year for the same manufacturer/insert, and last year's
+        # cards have had a full season to actually get graded.
+        try:
+            prior_year = str(int(year) - 1)
+            ratios = _get_ratio_profile(prior_year, manufacturer, insert)
+        except ValueError:
+            pass
 
     merged = dict(real_prices)
     estimated = set()
