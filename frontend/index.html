@@ -165,6 +165,7 @@
   .result-prices .grade-chip { font-size: 10px; color: var(--muted); white-space: nowrap; }
   .result-prices .grade-chip .g { color: var(--text); }
   .result-prices .grade-chip.primary .g { color: var(--accent); font-weight: 600; }
+  .est-marker { color: var(--muted); font-style: italic; cursor: help; }
   .result-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 2px; }
   .result-card .detail-link { font-size: 11px; color: var(--accent); text-decoration: none; align-self: center; }
   .result-card .detail-link:hover { text-decoration: underline; }
@@ -987,7 +988,15 @@ function renderCards() {
       ${GRADES.map(g => {
         const isPrimary = g === 'Ungraded' || g === 'PSA 10';
         const cls = isPrimary ? 'num' : `num secondary-grade${state.expandedCards.has(c.id) ? ' expanded' : ''}`;
-        return `<td class="${cls}" data-label="${g}">${fmt(c.prices[g])}</td>`;
+        // no real eBay listings exist yet for this grade -- the price is
+        // approximated from comparable cards instead (see
+        // ebay_api.fill_missing_grades) -- marked distinctly rather than
+        // shown as if it were a real listing-derived median.
+        const isEst = (c.estimated_grades || []).includes(g);
+        const marker = isEst
+          ? ` <span class="est-marker" title="Estimated from comparable cards -- no listings found for this grade yet">~</span>`
+          : '';
+        return `<td class="${cls}" data-label="${g}">${fmt(c.prices[g])}${marker}</td>`;
       }).join('')}
       <td class="mobile-toggle-cell" onclick="toggleCardExpanded(${c.id})">${state.expandedCards.has(c.id) ? '▴ Fewer grades' : '▾ More grades'}</td>
       <td data-label="Curve">${curveSvg(c.prices)}</td>

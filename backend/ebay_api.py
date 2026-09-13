@@ -502,6 +502,142 @@ def fetch_grade_prices(query: str, sample_size: int = 200) -> dict:
     return _grade_price_table(_fetch_filtered_items(query, sample_size))
 
 
+# ---- comparable-card price estimation ----
+#
+# A brand-new or thinly-collected card can have zero listings for a given
+# grade (confirmed against Production: a just-released rookie with no
+# PSA 10 sales yet), leaving that grade blank. Instead of leaving it
+# blank, estimate it from *comparable* cards -- same year/manufacturer,
+# ideally same insert, across different players -- scaling this card's
+# own real Ungraded price by that comparable set's typical grade-premium
+# ratio. Deliberately does NOT try to strip a player's name out of a
+# title to find "the insert name" generically -- a 2-word Titlecase
+# insert name ("Future Stars") and a 2-word Titlecase player name are
+# structurally identical in plain text, so there's no reliable way to
+# tell them apart without real name data this app doesn't have. Same
+# spirit as _PARALLEL_KEYWORDS/_LOT_PATTERN above: a curated list that
+# only ever recognizes what it already knows, and degrades to a coarser
+# (still real, never wrong-in-a-way-that-mixes-unrelated-products) scope
+# for anything it doesn't -- an unlisted manufacturer skips estimation
+# entirely (fails safe), an unlisted insert just falls back to the
+# broader year+manufacturer scope instead of erroring.
+_YEAR_RE = re.compile(r"\b(19[5-9]\d|20[0-4]\d)\b")
+_MANUFACTURERS = [
+    "topps", "bowman", "panini", "upper deck", "donruss", "leaf",
+    "fanatics", "score", "stadium club",
+]
+_KNOWN_INSERTS = [
+    "future stars", "rated rookie", "rated rookies", "diamond kings",
+    "elite extra edition", "downtown", "kaboom", "national treasures",
+    "clearly authentic", "1st bowman", "chrome update", "black gold",
+    "heritage", "pristine", "sapphire",
+]
+
+
+def _comparable_signature(title: str) -> tuple[str, str, str | None] | None:
+    """(year, manufacturer, insert_or_None) -- the scope estimation
+    searches for comparable cards within. None means a year or
+    manufacturer couldn't be confidently found, so estimation is skipped
+    for this card entirely rather than guessing from too little."""
+    lowered = title.lower()
+    year_match = _YEAR_RE.search(title)
+    if not year_match:
+        return None
+    manufacturer = next((m for m in _MANUFACTURERS if m in lowered), None)
+    if not manufacturer:
+        return None
+    insert = next((i for i in _KNOWN_INSERTS if i in lowered), None)
+    return (year_match.group(1), manufacturer, insert)
+
+
+# A relative multiplier (this grade costs ~3x Ungraded) changes far more
+# slowly than an absolute price does, so this cache's TTL is much longer
+# than _cache's -- and it's what actually keeps a full collection refresh
+# from re-running the comparable search once per card that happens to
+# share a signature, instead of once per distinct signature.
+_RATIO_CACHE_TTL_SECONDS = 21600  # 6h
+_MIN_COMPARABLE_CARDS = 3
+_ratio_cache_lock = Lock()
+_ratio_cache: dict[tuple, tuple[float, dict]] = {}
+
+
+def _get_ratio_profile(year: str, manufacturer: str, insert: str | None) -> dict:
+    """{grade: ratio-to-Ungraded}, computed from other cards sharing this
+    (year, manufacturer[, insert]) signature. Every ratio is anchored to
+    that *same comparable card's own* real Ungraded price specifically
+    (not "whatever grade happened to be its lowest") -- a comparable
+    lacking a real Ungraded price of its own is skipped rather than
+    anchored to some other grade, since ratios computed against different
+    baselines aren't actually comparable to each other and averaging them
+    would be quietly wrong, not just noisy. Requires >= _MIN_COMPARABLE_CARDS
+    comparables to agree on a grade before trusting it; grades that don't
+    clear that bar are simply left out of the profile."""
+    key = (year, manufacturer, insert)
+    now = time.time()
+    with _ratio_cache_lock:
+        cached = _ratio_cache.get(key)
+        if cached and now - cached[0] < _RATIO_CACHE_TTL_SECONDS:
+            return cached[1]
+
+    query = " ".join(filter(None, [year, manufacturer, insert]))
+    items = _fetch_filtered_items(query, 200)
+    clusters = _cluster_by_card(items)
+
+    ratios: dict[str, list[float]] = {g: [] for g in GRADE_COLUMNS if g != "Ungraded"}
+    for cluster in clusters:
+        if len(cluster["items"]) < 2:
+            continue  # a single listing is too noisy to trust as its own "comparable card"
+        table = _grade_price_table(cluster["items"])
+        ungraded = table.get("Ungraded")
+        if not ungraded or ungraded <= 0:
+            continue
+        for grade, price in table.items():
+            if grade != "Ungraded":
+                ratios[grade].append(price / ungraded)
+
+    profile = {
+        grade: round(statistics.median(values), 3)
+        for grade, values in ratios.items() if len(values) >= _MIN_COMPARABLE_CARDS
+    }
+    with _ratio_cache_lock:
+        _ratio_cache[key] = (now, profile)
+    return profile
+
+
+def fill_missing_grades(
+    title: str, real_prices: dict, protect_grades: frozenset = frozenset()
+) -> tuple[dict, set]:
+    """Fills grades missing from real_prices (and not in protect_grades --
+    see the comment at each call site in main.py for why that exists) with
+    an estimate: this card's own real Ungraded price, scaled by a
+    comparable-cards' grade-premium ratio. Returns (merged_prices,
+    estimated_grade_names); merged_prices is exactly real_prices,
+    untouched, whenever there's no real Ungraded price on this card to
+    anchor an estimate to, or no comparable signature/ratio can be found --
+    fails safe, a grade with nothing real to estimate from is simply left
+    blank, same as before this feature existed, never a guessed number."""
+    baseline = real_prices.get("Ungraded")
+    missing = [
+        g for g in GRADE_COLUMNS
+        if g != "Ungraded" and g not in real_prices and g not in protect_grades
+    ]
+    if not baseline or baseline <= 0 or not missing:
+        return real_prices, set()
+
+    signature = _comparable_signature(title)
+    if not signature:
+        return real_prices, set()
+    ratios = _get_ratio_profile(*signature)
+
+    merged = dict(real_prices)
+    estimated = set()
+    for grade in missing:
+        if grade in ratios:
+            merged[grade] = round(baseline * ratios[grade], 2)
+            estimated.add(grade)
+    return merged, estimated
+
+
 def fetch_item(item_id: str) -> dict | None:
     """Authoritative single-item lookup, used when adding a card -- never
     trust client-supplied title/image (same principle the old scraper

@@ -362,6 +362,21 @@ def search_cards(q: str, category_id: str | None = None, sess: dict = Depends(cu
     return {"results": ebay_api.search(q.strip(), category_id=category_id)}
 
 
+def _merge_with_estimates(conn, card_id: int, title: str, real_prices: dict) -> tuple[dict, set]:
+    """Fills any grade real_prices is missing with an estimate from
+    comparable cards (ebay_api.fill_missing_grades), but never overwrites a
+    grade that already holds a real (non-estimated) price in the DB --
+    protect_grades is exactly that set. A grade that's currently estimated,
+    or has no row at all (a brand-new card_id has none, so this works
+    unchanged for add/import too), stays eligible for re-estimation every
+    cycle; the moment a real search does return listings for it, it's no
+    longer "missing" from real_prices and the real value wins outright --
+    this self-heals with no separate cleanup step."""
+    existing = db.get_price_rows(conn, card_id)
+    protect = frozenset(g for g, info in existing.items() if not info["estimated"])
+    return ebay_api.fill_missing_grades(title, real_prices, protect)
+
+
 @app.post("/api/cards")
 def add_card(req: AddCardRequest, sess: dict = Depends(current_session)):
     check_access(req.profile_id, sess)
@@ -386,7 +401,8 @@ def add_card(req: AddCardRequest, sess: dict = Depends(current_session)):
             folder_id=req.folder_id,
             status=req.status,
         )
-        db.set_prices(conn, card_id, details["prices"], now_iso())
+        merged, estimated = _merge_with_estimates(conn, card_id, details["title"], details["prices"])
+        db.set_prices(conn, card_id, merged, now_iso(), estimated)
 
     return {"card_id": card_id}
 
@@ -446,7 +462,8 @@ def refresh(req: RefreshRequest, sess: dict = Depends(current_session)):
             failed.append(row["id"])
             continue
         with db.get_db() as conn:
-            db.set_prices(conn, row["id"], prices, now_iso())
+            merged, estimated = _merge_with_estimates(conn, row["id"], row["title"], prices)
+            db.set_prices(conn, row["id"], merged, now_iso(), estimated)
         updated.append(row["id"])
         time.sleep(ebay_api.REQUEST_DELAY)
 
@@ -485,7 +502,8 @@ async def import_csv(file: UploadFile, profile_id: int = Form(...), sess: dict =
                 details["product_url"],
                 quantity,
             )
-            db.set_prices(conn, card_id, details["prices"], now_iso())
+            merged, estimated = _merge_with_estimates(conn, card_id, details["title"], details["prices"])
+            db.set_prices(conn, card_id, merged, now_iso(), estimated)
         added.append(product_name)
 
     return {"added": added, "failed": failed}
@@ -529,7 +547,8 @@ def refresh_all_profiles_sync():
             failed += 1
             continue
         with db.get_db() as conn:
-            db.set_prices(conn, row["id"], prices, now_iso())
+            merged, estimated = _merge_with_estimates(conn, row["id"], row["title"], prices)
+            db.set_prices(conn, row["id"], merged, now_iso(), estimated)
         updated += 1
         time.sleep(ebay_api.REQUEST_DELAY)
     print(f"[auto-refresh] done: {updated} updated, {failed} failed")

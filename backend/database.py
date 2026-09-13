@@ -71,6 +71,12 @@ CREATE TABLE IF NOT EXISTS current_prices (
     grade TEXT NOT NULL,
     price REAL,
     updated_at TEXT NOT NULL,
+    -- 1 when this grade has no real eBay listings and the price is instead
+    -- approximated from comparable cards (see ebay_api.fill_missing_grades)
+    -- -- 0 for a real listing-derived median. A row already holding real
+    -- data (estimated=0) is never silently overwritten by a later estimate;
+    -- see the comment above the set_prices() call sites in main.py.
+    estimated INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (card_id, grade)
 );
 """
@@ -142,6 +148,10 @@ def init_db():
             if "status" not in cols:
                 print("[db] adding status column to cards (existing cards default to 'owned')...")
                 conn.execute("ALTER TABLE cards ADD COLUMN status TEXT NOT NULL DEFAULT 'owned'")
+            price_cols = {row["name"] for row in conn.execute("PRAGMA table_info(current_prices)")}
+            if "estimated" not in price_cols:
+                print("[db] adding estimated column to current_prices (existing prices are all real)...")
+                conn.execute("ALTER TABLE current_prices ADD COLUMN estimated INTEGER NOT NULL DEFAULT 0")
             return  # already on the current schema
 
         # pre-profile install: rebuild the table and carry existing rows into
@@ -318,15 +328,33 @@ def update_card(conn, profile_id: int, card_id: int, quantity: int, graded_as: s
     )
 
 
-def set_prices(conn, card_id, prices: dict, fetched_at: str):
+def set_prices(conn, card_id, prices: dict, fetched_at: str, estimated_grades: set | None = None):
+    """estimated_grades -- the subset of `prices`' keys that came from
+    ebay_api.fill_missing_grades() rather than a real listing median. Every
+    other grade here is written as estimated=0 (real) -- callers that don't
+    pass this at all (nothing currently does besides the estimation-aware
+    call sites) get the old real-only behavior unchanged."""
+    estimated_grades = estimated_grades or set()
     for grade, price in prices.items():
         conn.execute(
-            "INSERT INTO current_prices (card_id, grade, price, updated_at) "
-            "VALUES (?, ?, ?, ?) "
+            "INSERT INTO current_prices (card_id, grade, price, updated_at, estimated) "
+            "VALUES (?, ?, ?, ?, ?) "
             "ON CONFLICT(card_id, grade) DO UPDATE SET price=excluded.price, "
-            "updated_at=excluded.updated_at",
-            (card_id, grade, price, fetched_at),
+            "updated_at=excluded.updated_at, estimated=excluded.estimated",
+            (card_id, grade, price, fetched_at, int(grade in estimated_grades)),
         )
+
+
+def get_price_rows(conn, card_id) -> dict:
+    """{grade: {"price": .., "estimated": bool}} for one card -- used to
+    compute protect_grades before a refresh calls fill_missing_grades(),
+    so a grade that already holds a real price is never overwritten by a
+    later estimate (see the comment on that call in main.py)."""
+    rows = conn.execute(
+        "SELECT grade, price, estimated FROM current_prices WHERE card_id = ?",
+        (card_id,),
+    ).fetchall()
+    return {r["grade"]: {"price": r["price"], "estimated": bool(r["estimated"])} for r in rows}
 
 
 def list_cards(conn, profile_id: int, status: str = "owned"):
@@ -342,12 +370,13 @@ def list_cards(conn, profile_id: int, status: str = "owned"):
     result = []
     for card in cards:
         prices = conn.execute(
-            "SELECT grade, price, updated_at FROM current_prices WHERE card_id = ?",
+            "SELECT grade, price, updated_at, estimated FROM current_prices WHERE card_id = ?",
             (card["id"],),
         ).fetchall()
         result.append({
             **dict(card),
             "prices": {p["grade"]: p["price"] for p in prices},
+            "estimated_grades": [p["grade"] for p in prices if p["estimated"]],
             "last_updated": max((p["updated_at"] for p in prices), default=None),
         })
     return result

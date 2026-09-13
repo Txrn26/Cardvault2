@@ -186,6 +186,23 @@ the common cases are covered. A price that looks obviously too high or
 too low for a card is worth a quick click-through to the actual listings
 behind it (same as you'd sanity-check any pricing tool).
 
+**Estimated prices.** A brand-new or thinly-collected card can genuinely
+have zero listings for a given grade yet (professional grading takes
+weeks to months after a card releases, so a just-dropped rookie may have
+no PSA 10 sales at all). Rather than leaving that grade blank, it's
+estimated from comparable cards -- others sharing the same year and
+manufacturer (and, if recognized from a small curated list, the same
+insert/subset) -- by scaling this card's own real Ungraded price by that
+comparable set's typical grade-premium ratio. An estimated price is
+marked with a small `~` in the collection table (hover for the reason)
+and is never allowed to overwrite a grade that already has a real,
+listing-derived price -- the moment real listings for that grade do show
+up on a later refresh, they replace the estimate outright. Like the grade
+and lot-detection matching above, comparable-card matching is a title-text
+heuristic (`ebay_api.py`'s `_comparable_signature`/`_get_ratio_profile`),
+not a real product catalog -- an unrecognized manufacturer skips
+estimation for that card entirely rather than guessing from too little.
+
 **Call budget.** eBay's APIs have no separate paid tier to buy your way
 past this -- API access itself is free either way, the only lever is a
 call-volume *limit*, not a price. Every new app starts at 5,000 calls/day,
@@ -198,6 +215,13 @@ spend from the same daily budget. Set it back to `3600` (hourly) if you
 want fresher prices and have a small enough collection to still fit --
 300 cards hourly is 300 × 24 = 7,200/day, over budget; ~200 cards hourly
 (4,800/day) is right at the edge.
+
+Estimated prices (above) add a little to this, but far less than
+one-call-per-card -- the comparable-card search behind an estimate is
+cached ~6h per distinct (year, manufacturer, insert) combo, so a whole
+refresh sweep only pays for each combo actually needing an estimate once,
+not once per card. A realistic collection might add a low single-digit
+percent to the numbers above.
 
 If a collection genuinely outgrows 5,000/day, eBay's free **Application
 Growth Check** (Developer Program → your app → request a limit increase,
