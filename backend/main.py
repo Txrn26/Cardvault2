@@ -22,6 +22,24 @@ app.add_middleware(
     allow_credentials=True,
 )
 
+
+@app.middleware("http")
+async def no_cache_for_html(request: Request, call_next):
+    # This is a single-file frontend with no cache-busting filename/hash --
+    # without an explicit header, browsers apply their own heuristic
+    # freshness lifetime to it (worse still, mobile Safari's "Add to Home
+    # Screen" PWA mode can hold onto a stale copy indefinitely). That means
+    # a phone can keep running old JS against a backend that's since
+    # removed an endpoint it calls -- confirmed the hard way (an old
+    # frontend still calling the long-removed /api/search-detail, 404ing
+    # silently and showing "No price data" for every result). Forcing
+    # revalidation on every load costs nothing (one small file) and means
+    # a redeploy is actually seen the next time the page opens.
+    response = await call_next(request)
+    if request.url.path == "/" or request.url.path.endswith(".html"):
+        response.headers["Cache-Control"] = "no-cache, must-revalidate"
+    return response
+
 FRONTEND_DIR = Path(__file__).parent.parent / "frontend"
 SESSION_COOKIE = "session"
 SESSION_LIFETIME_DAYS = 30
