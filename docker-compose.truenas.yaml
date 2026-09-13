@@ -22,6 +22,11 @@ services:
       # optional -- eBay Partner Network campaign ID, tags listing links
       # for affiliate commission. Leave blank to skip.
       - EBAY_EPN_CAMPAIGN_ID=
+      # set to "sandbox" for a first smoke test against fake eBay data
+      # using a Sandbox keyset (separate from Production keys above) --
+      # confirms auth/search plumbing works before trusting real listings.
+      # Leave blank (or "production") once you switch to real keys.
+      - EBAY_ENV=
       # how often (in seconds) prices refresh automatically for every
       # card across every profile -- 43200 = twice a day, chosen to
       # comfortably fit eBay's free 5,000 calls/day tier for a
