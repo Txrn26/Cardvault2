@@ -430,7 +430,7 @@ def _fetch_filtered_items(query: str, limit: int) -> list[dict]:
 
 # ---- public API ----
 
-def search(query: str, limit: int = 30, sample_size: int = 100) -> list[dict]:
+def search(query: str, limit: int = 30, sample_size: int = 200) -> list[dict]:
     """One row per distinct card, not one per raw eBay listing -- eBay has
     no catalog/product page the way PriceCharting did, so "distinct card"
     means grouping same-search listings by title with grade wording
@@ -476,7 +476,7 @@ def search(query: str, limit: int = 30, sample_size: int = 100) -> list[dict]:
     return results[:limit]
 
 
-def fetch_grade_prices(query: str, sample_size: int = 100) -> dict:
+def fetch_grade_prices(query: str, sample_size: int = 200) -> dict:
     """The per-grade price table for one specific card: one search,
     bucketed by grade mentioned in each listing's title, median price per
     bucket. Used by refresh (one card at a time, on a schedule) and by
