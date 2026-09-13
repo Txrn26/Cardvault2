@@ -328,12 +328,74 @@ def _grade_price_table(items: list[dict]) -> dict:
     return {grade: round(statistics.median(prices), 2) for grade, prices in buckets.items() if prices}
 
 
-def _normalized_group_key(base_title: str) -> str:
-    """Collapses a grade-stripped title down to letters/digits/spaces so
-    trivial punctuation/whitespace differences between sellers ("PSA 10!"
-    vs "PSA10", extra spaces, a stray dash) don't split what's really the
-    same card into separate groups."""
-    return re.sub(r"[^a-z0-9]+", " ", base_title.lower()).strip()
+# Different sellers word the exact same card differently enough (word
+# order, "(RC)", the team name tacked on, a stray dash) that requiring an
+# exact match after stripping grades split one real card across several
+# groups -- e.g. "2026 Topps Chrome #FS-3 JJ Wetherholt Future Stars" and
+# "2026 Topps Chrome - Future Stars JJ Wetherholt #FS-3 (RC)" are the same
+# card. Grouping instead needs *tolerant* matching (unordered token
+# overlap) -- but tolerant matching alone would also merge a numbered
+# "/75" parallel or a named finish like "Refractor"/"Purple Wave" into the
+# base card's group, silently pulling its price into (or out of) the
+# ordinary card's median. Two hard differentiators fix that: any purely
+# numeric token that appears in only one of the two titles (almost always
+# a print run number), and a small curated list of common parallel/finish
+# names. Neither list is exhaustive -- like the grade and lot-detection
+# patterns above, this is a heuristic over title text, not a real product
+# catalog, so an unlisted parallel name can still merge into a base card's
+# group; a price that looks off for what should be an ordinary listing is
+# worth a quick click into "View listings" to check.
+_PARALLEL_KEYWORDS = {
+    "refractor", "xfractor", "superfractor", "negative", "negatives",
+    "prizm", "prism", "atomic", "wave", "shimmer", "mojo", "holo",
+    "holofoil", "rainbow", "foilboard", "kaboom", "downtown", "sparkle",
+    "cracked", "ice", "mummy", "logofractor", "velocity", "independence",
+    "canary", "fuchsia", "clearly", "tiedye",
+    "gold", "black", "white", "silver", "bronze", "pink", "purple",
+    "orange", "green", "blue", "red", "yellow", "teal", "magenta", "aqua", "camo",
+}
+# "rc"/"rookie" are status labels some sellers add and others don't for
+# the exact same card -- noise for grouping purposes, unlike the words above.
+_GROUP_STOPWORDS = _STOPWORDS | {"rc", "rookie"}
+_GROUP_OVERLAP_THRESHOLD = 0.75
+
+
+def _significant_tokens(text: str) -> set[str]:
+    return {t for t in re.findall(r"[a-z0-9]+", text.lower())
+            if len(t) > 1 and t not in _GROUP_STOPWORDS}
+
+
+def _same_card(tokens_a: set[str], tokens_b: set[str]) -> bool:
+    """Whether two listings' significant title tokens are close enough to
+    treat as the same card for grouping -- see the block comment above."""
+    diff = tokens_a ^ tokens_b
+    if diff & _PARALLEL_KEYWORDS:
+        return False
+    if any(t.isdigit() for t in diff):
+        return False
+    smaller = min(len(tokens_a), len(tokens_b))
+    return smaller > 0 and len(tokens_a & tokens_b) / smaller >= _GROUP_OVERLAP_THRESHOLD
+
+
+def _cluster_by_card(items: list[dict]) -> list[dict]:
+    """Groups listings into distinct cards: each item joins the first
+    existing cluster its title is close enough to (_same_card), or starts
+    a new one. One pass, compared against cluster anchors (the first
+    item's tokens, not updated as more items join, so a cluster can't
+    slowly drift into matching an unrelated title) -- fine at the scale of
+    one search's worth of listings (dozens, not thousands)."""
+    clusters: list[dict] = []
+    for item in items:
+        base_title = strip_grade_tokens(item.get("title", ""))
+        tokens = _significant_tokens(base_title)
+        if not tokens:
+            continue
+        cluster = next((c for c in clusters if _same_card(tokens, c["tokens"])), None)
+        if cluster is None:
+            cluster = {"tokens": tokens, "items": []}
+            clusters.append(cluster)
+        cluster["items"].append(item)
+    return clusters
 
 
 def _fetch_filtered_items(query: str, limit: int) -> list[dict]:
@@ -368,22 +430,16 @@ def search(query: str, limit: int = 30, sample_size: int = 100) -> list[dict]:
     *visible result* to fill in prices, which could mean 60+ calls for a
     single search."""
     items = _fetch_filtered_items(query, sample_size)
-    groups: dict[str, dict] = {}
-    for item in items:
-        base_title = strip_grade_tokens(item.get("title", ""))
-        key = _normalized_group_key(base_title)
-        if not key:
-            continue
-        group = groups.setdefault(key, {"items": [], "base_title": base_title})
-        group["items"].append(item)
+    clusters = _cluster_by_card(items)
 
     results = []
-    for group in groups.values():
-        group_items = group["items"]
+    for cluster in clusters:
+        group_items = cluster["items"]
         # representative listing: whichever exact title wording is most
         # common in this group (closest to "how most sellers word this
         # card"), first-seen as the tiebreak -- just for the image/display
-        # title, the price table itself uses every listing in the group.
+        # title and search link, the price table itself uses every listing
+        # in the group.
         titles = [it.get("title", "") for it in group_items]
         rep_title = Counter(titles).most_common(1)[0][0]
         rep_item = next(it for it in group_items if it.get("title") == rep_title)
@@ -394,7 +450,7 @@ def search(query: str, limit: int = 30, sample_size: int = 100) -> list[dict]:
             # a live search for this card, not one specific (eventually-gone)
             # listing -- consistent with the permanent link stored on add,
             # see card_search_url()'s comment below.
-            "url": card_search_url(group["base_title"]),
+            "url": card_search_url(strip_grade_tokens(rep_title) or rep_title),
             "item_id": rep_item.get("itemId"),
             "image_url": image_url,
             "image_url_large": image_url,

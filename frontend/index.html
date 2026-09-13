@@ -147,8 +147,7 @@
      this pushed the whole modal wider than the viewport and made the page
      scroll sideways on mobile. */
   .modal-body { overflow-y: auto; overflow-x: hidden; padding: 10px 18px 18px; }
-  .search-filters { display: none; gap: 8px; flex-wrap: wrap; padding-top: 10px; max-width: 100%; }
-  .search-filters.visible { display: flex; }
+  .search-filters { display: flex; gap: 8px; flex-wrap: wrap; padding-top: 10px; max-width: 100%; }
   .search-filters select { font-size: 12px; padding: 5px 8px; max-width: 42vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .search-filters .filter-hint { font-size: 11px; color: var(--muted); align-self: center; }
   /* a scrolling list, not a grid -- one row per result, image left, everything
@@ -1147,7 +1146,6 @@ function openSearch() {
   document.getElementById('searchOverlay').classList.add('open');
   document.getElementById('searchInput').value = '';
   document.getElementById('searchResults').innerHTML = '';
-  document.getElementById('searchFilters').classList.remove('visible');
   ['filterCategory', 'filterSet', 'filterYear'].forEach(id => {
     const el = document.getElementById(id);
     el._lastValues = null;
@@ -1195,7 +1193,6 @@ function triggerSearch() {
 }
 
 async function runSearch(q) {
-  document.getElementById('searchFilters').classList.remove('visible');
   document.getElementById('searchResults').innerHTML = '<div class="hint">Searching -- this can take a few seconds...</div>';
   const res = await af('/api/search?q=' + encodeURIComponent(q));
   const data = await res.json();
@@ -1236,7 +1233,6 @@ async function runSearch(q) {
   [...new Set(results.map(r => r.category).filter(Boolean))].forEach(addCategoryFacetOption);
   updateSetOptions();
   populateSelect('filterYear', 'All Years', [...new Set(results.map(r => r.year).filter(Boolean))].sort().reverse());
-  document.getElementById('searchFilters').classList.add('visible');
   applySearchFilters();
   if (document.getElementById('sortBy').value) applySort();
 }
