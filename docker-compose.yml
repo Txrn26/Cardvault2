@@ -20,6 +20,11 @@ services:
       # first smoke test against fake data before trusting this against
       # real listings. Leave unset/"production" for real use.
       - EBAY_ENV=${EBAY_ENV:-production}
+      # which eBay category to search within -- the Browse API only allows
+      # one category per search. 261328 = Sports Trading Cards (default).
+      # Collecting TCGs instead (Magic, Pokemon, Yu-Gi-Oh, etc.)? Set this
+      # to 183454 (CCG Individual Cards).
+      - EBAY_CATEGORY_ID=${EBAY_CATEGORY_ID:-}
       # how often (in seconds) prices refresh automatically for every card
       # across every profile -- 43200 = twice a day, chosen to comfortably
       # fit eBay's free 5,000 calls/day tier for a decent-sized collection.

@@ -34,10 +34,15 @@ import requests
 
 GRADE_COLUMNS = ["Ungraded", "Grade 7", "Grade 8", "Grade 9", "Grade 9.5", "PSA 10", "BGS 10"]
 
-# Trading Card Singles, CCG Individual Cards -- covers both sports cards and
-# TCGs in one search, same as the old app's combined PriceCharting/
-# SportsCardsPro coverage.
-CATEGORY_IDS = "261328,183454"
+# Originally this covered both sports cards (261328, "Sports Trading
+# Cards") and TCGs (183454, "CCG Individual Cards") in one search, mirroring
+# the old app's combined PriceCharting/SportsCardsPro coverage -- but
+# item_summary/search rejects more than one category_id per request
+# (errorId 12030, discovered against Production: "allowedMaxCategories":
+# "1"), which the Sandbox environment doesn't enforce/expose. So this is
+# one category, overridable via env for TCG collections -- sports cards by
+# default since that's this deployment's actual use.
+CATEGORY_ID = os.environ.get("EBAY_CATEGORY_ID", "").strip() or "261328"
 MARKETPLACE = "EBAY_US"
 
 # Polite pacing between calls issued back-to-back in a loop (search-detail
@@ -273,7 +278,7 @@ def card_search_url(query: str) -> str:
 
 # ---- multi-card listing (lot/bundle) filtering ----
 #
-# Two layers, because neither alone is reliable: CATEGORY_IDS above already
+# Two layers, because neither alone is reliable: CATEGORY_ID above already
 # points at eBay's "Singles" categories rather than its separate lot/bundle
 # categories, but sellers regularly list a multi-card lot under Singles
 # anyway (mistake, or just for the extra search visibility) -- one of those
@@ -303,7 +308,7 @@ def search(query: str, limit: int = 60) -> list[dict]:
     there's no PriceCharting-style single catalog page per card on eBay."""
     tokens = _query_tokens(query)
     data = _get("/item_summary/search", {
-        "q": query, "category_ids": CATEGORY_IDS, "limit": min(limit, 200),
+        "q": query, "category_ids": CATEGORY_ID, "limit": min(limit, 200),
     })
     results = []
     for item in data.get("itemSummaries", []):
@@ -336,7 +341,7 @@ def fetch_grade_prices(query: str, sample_size: int = 100) -> dict:
     refresh (one card at a time, on a schedule)."""
     tokens = _query_tokens(query)
     data = _get("/item_summary/search", {
-        "q": query, "category_ids": CATEGORY_IDS, "limit": sample_size,
+        "q": query, "category_ids": CATEGORY_ID, "limit": sample_size,
     })
     buckets: dict[str, list[float]] = {g: [] for g in GRADE_COLUMNS}
     for item in data.get("itemSummaries", []):
