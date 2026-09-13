@@ -143,12 +143,14 @@ built to be reasonable for more than just one trusted household now.
   uses, if you have one from before). Each row is searched on eBay and
   added with current per-grade prices, into whichever profile is currently
   selected.
-- **+ Add Card** -- search by name/set; results are current eBay listings
-  grouped into distinct cards (not one row per raw listing), each already
-  showing its own full grade-price table so you can confirm you've got
-  the right card/variant before adding ("View listings" opens that card's
-  live eBay search). Add with a quantity; lands in the folder you're
-  currently viewing.
+- **+ Add Card** -- pick a Card Type (Sports Trading Cards or TCG/Non-Sport,
+  scopes which eBay category actually gets searched), optionally narrow with
+  Year/Set, then search by name; results are current eBay listings grouped
+  into distinct cards (not one row per raw listing), each already showing
+  its own full grade-price table so you can confirm you've got the right
+  card/variant before adding ("View listings" opens that card's live eBay
+  search). Add with a quantity; lands in the folder you're currently
+  viewing.
 - **↻ Refresh Prices** -- re-searches eBay for every card in the current
   profile's collection and updates current prices, one search per card
   (see "How it gets the data" for the cost of this).

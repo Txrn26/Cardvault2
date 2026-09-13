@@ -345,17 +345,21 @@ def _require_ebay_configured():
 
 
 @app.get("/api/search")
-def search_cards(q: str, sess: dict = Depends(current_session)):
+def search_cards(q: str, category_id: str | None = None, sess: dict = Depends(current_session)):
     """Results are already grouped into distinct cards with a full
     grade-price table each -- see ebay_api.search()'s docstring. One
     eBay API call total, regardless of how many groups/listings that
     produces (a previous version fetched prices per visible result via a
     separate /api/search-detail endpoint, now removed -- that cost one
-    extra call per result on screen)."""
+    extra call per result on screen). category_id is the search modal's
+    "Card Type" picker (Sports vs TCG) -- ebay_api.search() validates it
+    against KNOWN_CATEGORY_IDS and falls back to the deployment's default
+    for anything else, so an unexpected value here just means "use the
+    default," not an error."""
     if not q or len(q.strip()) < 2:
         raise HTTPException(400, "Query too short")
     _require_ebay_configured()
-    return {"results": ebay_api.search(q.strip())}
+    return {"results": ebay_api.search(q.strip(), category_id=category_id)}
 
 
 @app.post("/api/cards")

@@ -148,7 +148,8 @@
      scroll sideways on mobile. */
   .modal-body { overflow-y: auto; overflow-x: hidden; padding: 10px 18px 18px; }
   .search-filters { display: flex; gap: 8px; flex-wrap: wrap; padding-top: 10px; max-width: 100%; }
-  .search-filters select { font-size: 12px; padding: 5px 8px; max-width: 42vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .search-filters select, .search-filters input { font-size: 12px; padding: 5px 8px; max-width: 42vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .search-filters input { background: var(--panel-2); color: var(--text); border: 1px solid var(--border); border-radius: 4px; }
   .search-filters .filter-hint { font-size: 11px; color: var(--muted); align-self: center; }
   /* a scrolling list, not a grid -- one row per result, image left, everything
      else (title, grades, actions) stacked to the right. Same at every width;
@@ -158,7 +159,6 @@
   .result-card img { width: 96px; flex-shrink: 0; aspect-ratio: 5/7; object-fit: cover; border-radius: 4px; background: #0a0b0e; }
   .result-card .result-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
   .result-card .title { font-size: 13px; font-weight: 600; line-height: 1.3; }
-  .result-card .set-name { font-size: 11px; color: var(--muted); }
   .result-card .source { font-size: 10px; color: var(--muted); }
   .result-prices { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 3px 0; min-height: 24px; }
   .result-prices .curve { flex-shrink: 0; }
@@ -365,11 +365,21 @@
       <button onclick="closeSearch()">Close</button>
     </div>
     <div class="modal-body">
-      <div class="hint">Pick the exact card by comparing the image and set name -- then set quantity and add.</div>
+      <!-- These narrow the actual eBay search before it runs (Card Type
+           picks which eBay category gets queried; Year/Set get folded
+           into the search text) -- unlike the row below, which only
+           filters results already fetched. -->
+      <div id="searchPre" class="search-filters">
+        <select id="preCardType">
+          <option value="261328">Sports Trading Cards</option>
+          <option value="183454">TCG / Non-Sport Cards</option>
+        </select>
+        <input id="preYear" placeholder="Year (optional)" inputmode="numeric" maxlength="4" style="width:100px">
+        <input id="preSet" placeholder="Set/Product (optional), e.g. Topps Chrome" style="flex:1; min-width:180px">
+      </div>
+      <div class="hint">Pick the exact card by comparing the image -- then set quantity and add.</div>
       <div id="searchFilters" class="search-filters">
-        <select id="filterCategory" onchange="onCategoryFilterChange()"><option value="">All Categories</option></select>
-        <select id="filterSet" onchange="applySearchFilters()"><option value="">All Sets</option></select>
-        <select id="filterYear" onchange="applySearchFilters()"><option value="">All Years</option></select>
+        <select id="filterCategory" onchange="applySearchFilters()"><option value="">All Categories</option></select>
         <select id="sortBy" onchange="applySort()">
           <option value="">Sort: Relevance</option>
           <option value="PSA 10">Sort: PSA 10 Price (High-Low)</option>
@@ -1146,77 +1156,62 @@ function openSearch() {
   document.getElementById('searchOverlay').classList.add('open');
   document.getElementById('searchInput').value = '';
   document.getElementById('searchResults').innerHTML = '';
-  ['filterCategory', 'filterSet', 'filterYear'].forEach(id => {
-    const el = document.getElementById(id);
-    el._lastValues = null;
-    el._pendingRebuild = null;
-    el._pendingOptions = null;
-  });
-  document.getElementById('filterCategory').innerHTML = '<option value="">All Categories</option>';
-  document.getElementById('filterSet').innerHTML = '<option value="">All Sets</option>';
-  document.getElementById('filterYear').innerHTML = '<option value="">All Years</option>';
+  document.getElementById('preCardType').value = '261328';
+  document.getElementById('preYear').value = '';
+  document.getElementById('preSet').value = '';
+  const catEl = document.getElementById('filterCategory');
+  catEl._lastValues = null;
+  catEl._pendingRebuild = null;
+  catEl._pendingOptions = null;
+  catEl.innerHTML = '<option value="">All Categories</option>';
   document.getElementById('sortBy').value = '';
   document.getElementById('searchInput').focus();
 }
 function closeSearch() { document.getElementById('searchOverlay').classList.remove('open'); }
 
-document.getElementById('searchInput').addEventListener('keydown', (e) => {
-  if (e.key === 'Enter') triggerSearch();
+['searchInput', 'preYear', 'preSet'].forEach(id => {
+  document.getElementById(id).addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') triggerSearch();
+  });
 });
 
 function triggerSearch() {
   const q = document.getElementById('searchInput').value.trim();
-  if (q.length < 3) {
-    // blank box -- only allowed as a deliberate "browse a set/year" action,
-    // and only once 2+ filters are picked (never just 1, e.g. Year alone --
-    // that's "every card from that year" with nothing else narrowing it,
-    // which is both a huge unfocused result set and a lot more scraping
-    // than a normal search). The filters themselves only exist because a
-    // prior search already populated them, so this is really "re-search
-    // narrower on what you just noticed," not a from-scratch browse mode.
-    const cat = document.getElementById('filterCategory').value;
-    const set = document.getElementById('filterSet').value;
-    const year = document.getElementById('filterYear').value;
-    if ([cat, set, year].filter(Boolean).length >= 2) {
-      // Set already reads as "YYYY Brand Product" -- Category isn't real
-      // search text (it's our own derived label, not the site's
-      // vocabulary), so it only counts toward the 2-filter requirement and
-      // keeps narrowing the results afterward the same way it already does.
-      runSearch([set, year].filter(Boolean).join(' ').trim());
-      return;
-    }
+  const year = document.getElementById('preYear').value.trim();
+  const set = document.getElementById('preSet').value.trim();
+  const categoryId = document.getElementById('preCardType').value;
+  if (q.length < 3 && !year && !set) {
     document.getElementById('searchResults').innerHTML =
-      '<div class="hint">Type at least 3 characters, or leave it blank and select 2 or more filters (Category/Set/Year) to browse instead.</div>';
+      '<div class="hint">Type at least 3 characters, or fill in Year and/or Set/Product to browse instead.</div>';
     return;
   }
-  runSearch(q);
+  // Year/Set aren't separate eBay parameters (it has no such fields) --
+  // folding them into the search text works the same way typing them
+  // into the box directly would, since every word here has to appear in
+  // a listing's title to match (see _row_matches_query server-side).
+  runSearch([year, set, q].filter(Boolean).join(' ').trim(), categoryId);
 }
 
-async function runSearch(q) {
+async function runSearch(q, categoryId) {
   document.getElementById('searchResults').innerHTML = '<div class="hint">Searching -- this can take a few seconds...</div>';
-  const res = await af('/api/search?q=' + encodeURIComponent(q));
+  let url = '/api/search?q=' + encodeURIComponent(q);
+  if (categoryId) url += '&category_id=' + encodeURIComponent(categoryId);
+  const res = await af(url);
   const data = await res.json();
   const results = data.results || [];
   if (!results.length) {
     document.getElementById('searchResults').innerHTML = '<div class="hint">No matches. Try a shorter or differently worded query.</div>';
     return;
   }
-  // eBay listings don't carry a separate "set" field the way PriceCharting
-  // product pages did -- year is pulled straight out of the title instead
-  // (most listing titles lead with it, e.g. "2026 Topps Chrome ..."). Set
-  // itself isn't available, so that filter stays empty (harmless -- the
-  // dropdown just shows "All Sets" with nothing else to pick).
-  results.forEach(r => { r.year = (r.title || '').match(/\b(19|20)\d{2}\b/)?.[0] || ''; });
 
   // Each result is already one distinct card (eBay listings grouped
   // server-side) with its own grade-price table -- no separate per-result
   // price lookup needed, unlike the old per-listing search-detail flow.
   document.getElementById('searchResults').innerHTML = results.map((r, i) => `
-    <div class="result-card" data-idx="${i}" data-set="${r.set_name || ''}" data-year="${r.year}" data-category="${r.category || ''}" data-psa10="${r.prices?.['PSA 10'] ?? ''}" data-ungraded="${r.prices?.['Ungraded'] ?? ''}">
+    <div class="result-card" data-idx="${i}" data-category="${r.category || ''}" data-psa10="${r.prices?.['PSA 10'] ?? ''}" data-ungraded="${r.prices?.['Ungraded'] ?? ''}">
       <img src="${r.image_url_large || r.image_url || ''}" data-fallback="${r.image_url || ''}" onerror="handleSearchImgError(this)">
       <div class="result-info">
         <div class="title">${r.title}</div>
-        <div class="set-name">${r.set_name || ''}</div>
         <div class="source">${r.source} -- based on ${r.listing_count} current listing${r.listing_count === 1 ? '' : 's'}</div>
         <div class="result-prices">${resultPriceHtml(r.prices || {})}</div>
         <div class="result-actions">
@@ -1231,71 +1226,24 @@ async function runSearch(q) {
   state.searchGen = (state.searchGen || 0) + 1;
 
   [...new Set(results.map(r => r.category).filter(Boolean))].forEach(addCategoryFacetOption);
-  updateSetOptions();
-  populateSelect('filterYear', 'All Years', [...new Set(results.map(r => r.year).filter(Boolean))].sort().reverse());
   applySearchFilters();
   if (document.getElementById('sortBy').value) applySort();
 }
 
-function populateSelect(id, allLabel, values) {
-  const el = document.getElementById(id);
-  // rebuilding a <select>'s options while it's open/focused resets the
-  // native picker's scroll position (confirmed on iOS Safari) -- as
-  // results stream in this could otherwise happen dozens of times over
-  // one search. Skip the rebuild while focused and stash it for the blur
-  // handler below to apply once they're done scrolling through it.
-  if (document.activeElement === el) {
-    el._pendingRebuild = { allLabel, values };
-    return;
+// Category's options get appended one at a time as results resolve --
+// if the picker's open when that happens, queue them and flush once the
+// user closes it, instead of leaving it stale.
+document.getElementById('filterCategory').addEventListener('blur', function () {
+  if (this._pendingOptions && this._pendingOptions.length) {
+    this._pendingOptions.forEach(cat => {
+      const opt = document.createElement('option');
+      opt.value = cat;
+      opt.textContent = cat;
+      this.appendChild(opt);
+    });
+    this._pendingOptions = [];
   }
-  if (JSON.stringify(values) === JSON.stringify(el._lastValues || [])) return; // nothing actually changed
-  el._lastValues = values;
-  const current = el.value;
-  el.innerHTML = `<option value="">${allLabel}</option>` + values.map(v => `<option value="${v}">${v}</option>`).join('');
-  if (values.includes(current)) el.value = current;
-}
-
-// Set (rebuilt wholesale as categories resolve) and Category (options
-// appended one at a time) both mutate while the search is in progress --
-// either one could be open when that happens. Flush anything that was
-// deferred once the user closes the picker, instead of leaving it stale.
-['filterCategory', 'filterSet'].forEach(id => {
-  document.getElementById(id).addEventListener('blur', function () {
-    if (this._pendingRebuild) {
-      const { allLabel, values } = this._pendingRebuild;
-      this._pendingRebuild = null;
-      populateSelect(id, allLabel, values);
-    }
-    if (this._pendingOptions && this._pendingOptions.length) {
-      this._pendingOptions.forEach(cat => {
-        const opt = document.createElement('option');
-        opt.value = cat;
-        opt.textContent = cat;
-        this.appendChild(opt);
-      });
-      this._pendingOptions = [];
-    }
-  });
 });
-
-function updateSetOptions() {
-  // sets are scoped to the selected category (if any) -- a set that only
-  // belongs to another category shouldn't show up once you've narrowed
-  // down to e.g. "Baseball Cards". Reads straight from the rendered
-  // cards' data-* attributes rather than the results array, so it stays
-  // correct as categories keep arriving asynchronously.
-  const cat = document.getElementById('filterCategory').value;
-  const cards = [...document.querySelectorAll('.result-card')];
-  const sets = [...new Set(
-    cards.filter(c => !cat || c.dataset.category === cat).map(c => c.dataset.set).filter(Boolean)
-  )].sort();
-  populateSelect('filterSet', 'All Sets', sets);
-}
-
-function onCategoryFilterChange() {
-  updateSetOptions();
-  applySearchFilters();
-}
 
 function addCategoryFacetOption(category) {
   if (!category) return;
@@ -1314,19 +1262,15 @@ function addCategoryFacetOption(category) {
 
 function applySearchFilters() {
   const cat = document.getElementById('filterCategory').value;
-  const set = document.getElementById('filterSet').value;
-  const year = document.getElementById('filterYear').value;
   const cards = [...document.querySelectorAll('.result-card')];
   let shown = 0;
   cards.forEach(c => {
-    const matches = (!cat || c.dataset.category === cat)
-      && (!set || c.dataset.set === set)
-      && (!year || c.dataset.year === year);
+    const matches = !cat || c.dataset.category === cat;
     c.style.display = matches ? '' : 'none';
     if (matches) shown++;
   });
   const hint = document.getElementById('filterHint');
-  if (hint) hint.textContent = (cat || set || year) ? `Showing ${shown} of ${cards.length}` : '';
+  if (hint) hint.textContent = cat ? `Showing ${shown} of ${cards.length}` : '';
 }
 
 function applySort() {

@@ -409,13 +409,30 @@ def _cluster_by_card(items: list[dict]) -> list[dict]:
     return clusters
 
 
-def _fetch_filtered_items(query: str, limit: int) -> list[dict]:
+# The two eBay category ids this app knows about -- offered as a "Card
+# Type" choice in the search modal so a search can be scoped to whichever
+# actually matches what's being searched for, instead of being locked to
+# whatever EBAY_CATEGORY_ID happens to be set deployment-wide. Kept to
+# exactly these two (validated in _fetch_filtered_items below) rather than
+# accepting any client-supplied id -- there's no reason a logged-in user's
+# browser should be able to point this deployment's eBay calls at an
+# arbitrary category.
+KNOWN_CATEGORY_IDS = {
+    "261328": "Sports Trading Cards",
+    "183454": "TCG / Non-Sport Cards",
+}
+
+
+def _fetch_filtered_items(query: str, limit: int, category_id: str | None = None) -> list[dict]:
     """One search call, with the token-match and lot filters already
     applied -- the shared first step behind both search() and
-    fetch_grade_prices()."""
+    fetch_grade_prices(). category_id overrides the deployment's default
+    (CATEGORY_ID) for this one call -- only ever from the search modal's
+    "Card Type" picker, and only if it's one of KNOWN_CATEGORY_IDS."""
+    resolved_category = category_id if category_id in KNOWN_CATEGORY_IDS else CATEGORY_ID
     tokens = _query_tokens(query)
     data = _get("/item_summary/search", {
-        "q": query, "category_ids": CATEGORY_ID, "limit": min(limit, 200),
+        "q": query, "category_ids": resolved_category, "limit": min(limit, 200),
     })
     items = []
     for item in data.get("itemSummaries", []):
@@ -430,7 +447,7 @@ def _fetch_filtered_items(query: str, limit: int) -> list[dict]:
 
 # ---- public API ----
 
-def search(query: str, limit: int = 30, sample_size: int = 200) -> list[dict]:
+def search(query: str, limit: int = 30, sample_size: int = 200, category_id: str | None = None) -> list[dict]:
     """One row per distinct card, not one per raw eBay listing -- eBay has
     no catalog/product page the way PriceCharting did, so "distinct card"
     means grouping same-search listings by title with grade wording
@@ -440,7 +457,7 @@ def search(query: str, limit: int = 30, sample_size: int = 200) -> list[dict]:
     critical, since an earlier version of this ran an extra API call per
     *visible result* to fill in prices, which could mean 60+ calls for a
     single search."""
-    items = _fetch_filtered_items(query, sample_size)
+    items = _fetch_filtered_items(query, sample_size, category_id)
     clusters = _cluster_by_card(items)
 
     results = []
