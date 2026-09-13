@@ -11,6 +11,16 @@
 services:
   cardvault:
     image: ghcr.io/txrn26/cardvault2:latest
+    # without this, "Redeploy" (docker compose up under the hood) only
+    # recreates the container if this file's *config* changed -- a mutable
+    # tag like :latest getting a new image on GHCR doesn't count, so it'd
+    # silently keep running the old code even after a fresh pull. This
+    # makes every redeploy actually check for and switch to the newest
+    # image, which is what you want while this repo is still being iterated
+    # on. (Environment changes, e.g. flipping EBAY_ENV, always force a
+    # recreate regardless -- this is specifically for the "same YAML, new
+    # image" case.)
+    pull_policy: always
     ports:
       - "8000:8000"
     environment:
