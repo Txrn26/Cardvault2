@@ -607,6 +607,50 @@ def _get_ratio_profile(year: str, manufacturer: str, insert: str | None) -> dict
     return profile
 
 
+# How many years back to widen the search once the exact (year, manufacturer,
+# insert) signature comes up with nothing gradeable -- confirmed against
+# Production: a just-released year's cards can have essentially nothing
+# graded industry-wide yet, not just for one specific card, since
+# professional grading takes weeks to months. 3 years covers a card that's
+# had a full season or two to actually get graded without reaching so far
+# back that "comparable" stops meaning much for a fast-changing hobby.
+_FALLBACK_YEARS_BACK = 3
+
+
+def _broaden_and_retry(year: str, manufacturer: str, insert: str | None) -> dict:
+    """Widens the comparable search when the exact signature comes up
+    empty, trying (in order, first hit wins): the same year without the
+    insert restriction (a broader same-year pool), then each of the last
+    few years with the insert, then each of those years without it.
+    Grade-premium *ratios* (not absolute prices) tend to hold up
+    reasonably well year-over-year for the same manufacturer/insert, which
+    is what makes this a defensible broadening rather than a guess from an
+    unrelated product -- every attempt here still requires
+    _MIN_COMPARABLE_CARDS real comparables to agree, same as the exact
+    match. Each attempt is its own cached signature (_get_ratio_profile),
+    so a whole collection refresh still only pays for a given signature's
+    search once."""
+    try:
+        base_year = int(year)
+    except ValueError:
+        return {}
+
+    attempts = []
+    if insert:
+        attempts.append((year, manufacturer, None))
+    for offset in range(1, _FALLBACK_YEARS_BACK + 1):
+        prior_year = str(base_year - offset)
+        if insert:
+            attempts.append((prior_year, manufacturer, insert))
+        attempts.append((prior_year, manufacturer, None))
+
+    for attempt in attempts:
+        profile = _get_ratio_profile(*attempt)
+        if profile:
+            return profile
+    return {}
+
+
 def fill_missing_grades(
     title: str, real_prices: dict, protect_grades: frozenset = frozenset()
 ) -> tuple[dict, set]:
@@ -630,25 +674,9 @@ def fill_missing_grades(
     signature = _comparable_signature(title)
     if not signature:
         return real_prices, set()
-    year, manufacturer, insert = signature
-    ratios = _get_ratio_profile(year, manufacturer, insert)
+    ratios = _get_ratio_profile(*signature)
     if not ratios:
-        # A just-released year's cards can have essentially nothing graded
-        # industry-wide yet -- not just for this one card -- since
-        # professional grading takes weeks to months after a card's
-        # release (confirmed against Production: a "2026 Topps" sweep of
-        # 116 listings across 87 distinct cards had real Ungraded sales
-        # everywhere and not one graded sale anywhere). Falling back one
-        # year keeps the estimate scoped to the same manufacturer/insert
-        # rather than guessing from an unrelated product -- grade-premium
-        # *ratios* (not absolute prices) tend to hold up reasonably well
-        # year-over-year for the same manufacturer/insert, and last year's
-        # cards have had a full season to actually get graded.
-        try:
-            prior_year = str(int(year) - 1)
-            ratios = _get_ratio_profile(prior_year, manufacturer, insert)
-        except ValueError:
-            pass
+        ratios = _broaden_and_retry(*signature)
 
     merged = dict(real_prices)
     estimated = set()
