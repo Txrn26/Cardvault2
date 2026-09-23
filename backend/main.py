@@ -6,6 +6,7 @@ import time
 from collections import defaultdict, deque
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from threading import Lock, Thread
 
 from fastapi import Cookie, Depends, FastAPI, HTTPException, Request, Response, UploadFile, Form
 from fastapi.middleware.cors import CORSMiddleware
@@ -455,6 +456,49 @@ def move_card_status(card_id: int, req: SetStatusRequest, sess: dict = Depends(c
     return {"ok": True}
 
 
+def _refresh_one_card(row) -> bool:
+    """Fetches + merges-with-estimates + stores one card's prices. Returns
+    whether it actually got usable data (True -> updated, False -> failed).
+    Shared by both the single-card path below and the background job
+    runner, so they can't drift out of sync with each other."""
+    try:
+        prices = ebay_api.fetch_grade_prices(ebay_api.strip_grade_tokens(row["title"]))
+    except Exception:
+        prices = {}
+    if not prices:
+        return False
+    with db.get_db() as conn:
+        merged, estimated = _merge_with_estimates(conn, row["id"], row["title"], prices)
+        db.set_prices(conn, row["id"], merged, now_iso(), estimated)
+    return True
+
+
+# Refreshing a whole collection means one real eBay round-trip per card
+# (REQUEST_DELAY-paced), and now -- since a card missing a grade can trigger
+# the comparable-card fallback sweeping several more years of search -- some
+# cards cost several round-trips, not one. Long enough, for a collection
+# with more than a handful of cards, that holding one HTTP request open for
+# the whole sweep risked a client or intermediate proxy timing it out
+# partway through (confirmed: a real dropped-connection error on a full
+# refresh). A single card (below) stays a normal request/response -- at
+# most a handful of calls, not worth this -- but refreshing everything now
+# runs as a background job the frontend polls, the same
+# spirit as the scheduled auto-refresh already uses.
+_refresh_lock = Lock()
+_refresh_jobs: dict[int, dict] = {}  # profile_id -> job state, see refresh_status()
+
+
+def _run_refresh_job(profile_id: int, rows):
+    updated, failed = [], []
+    for i, row in enumerate(rows):
+        (updated if _refresh_one_card(row) else failed).append(row["id"])
+        with _refresh_lock:
+            _refresh_jobs[profile_id]["done"] = i + 1
+        time.sleep(ebay_api.REQUEST_DELAY)
+    with _refresh_lock:
+        _refresh_jobs[profile_id].update({"running": False, "updated": updated, "failed": failed})
+
+
 @app.post("/api/refresh")
 def refresh(req: RefreshRequest, sess: dict = Depends(current_session)):
     check_access(req.profile_id, sess)
@@ -470,22 +514,30 @@ def refresh(req: RefreshRequest, sess: dict = Depends(current_session)):
                 "SELECT id, title FROM cards WHERE profile_id = ?", (req.profile_id,)
             ).fetchall()
 
-    updated, failed = [], []
-    for row in rows:
-        try:
-            prices = ebay_api.fetch_grade_prices(ebay_api.strip_grade_tokens(row["title"]))
-        except Exception:
-            prices = {}
-        if not prices:
-            failed.append(row["id"])
-            continue
-        with db.get_db() as conn:
-            merged, estimated = _merge_with_estimates(conn, row["id"], row["title"], prices)
-            db.set_prices(conn, row["id"], merged, now_iso(), estimated)
-        updated.append(row["id"])
-        time.sleep(ebay_api.REQUEST_DELAY)
+    if req.card_id is not None:
+        updated, failed = [], []
+        for row in rows:
+            (updated if _refresh_one_card(row) else failed).append(row["id"])
+            time.sleep(ebay_api.REQUEST_DELAY)
+        return {"updated": updated, "failed": failed}
 
-    return {"updated": updated, "failed": failed}
+    with _refresh_lock:
+        existing = _refresh_jobs.get(req.profile_id)
+        if existing and existing["running"]:
+            return {"started": False, "already_running": True, **existing}
+        _refresh_jobs[req.profile_id] = {
+            "running": True, "total": len(rows), "done": 0, "updated": [], "failed": [],
+        }
+    Thread(target=_run_refresh_job, args=(req.profile_id, rows), daemon=True).start()
+    return {"started": True, "total": len(rows)}
+
+
+@app.get("/api/refresh/status")
+def refresh_status(profile_id: int, sess: dict = Depends(current_session)):
+    check_access(profile_id, sess)
+    with _refresh_lock:
+        job = _refresh_jobs.get(profile_id)
+    return dict(job) if job else {"running": False, "total": 0, "done": 0, "updated": [], "failed": []}
 
 
 @app.post("/api/cards/import")

@@ -1058,6 +1058,13 @@ async function deleteSelected() {
 // ---------- refresh / delete single ----------
 
 async function refreshAll() {
+  // Refreshing a whole collection can mean many real eBay round-trips in a
+  // row -- long enough that holding one HTTP request open for the entire
+  // sweep risked the connection getting dropped partway through before it
+  // could respond (confirmed: a real "Load failed" on a large collection).
+  // The backend now starts this as a background job and returns
+  // immediately; this polls /api/refresh/status for progress instead of
+  // waiting on one giant request.
   const btn = document.getElementById('refreshBtn');
   btn.disabled = true;
   setStatus('Refreshing prices -- this respects a polite rate limit, so it can take a while for a large collection...');
@@ -1067,13 +1074,44 @@ async function refreshAll() {
       body: JSON.stringify({profile_id: state.viewingProfileId})
     });
     const data = await res.json();
-    setStatus(`Refreshed ${data.updated.length} card(s).` + (data.failed.length ? ` ${data.failed.length} failed -- try refreshing them individually.` : ''));
+    if (!data.started && !data.already_running) {
+      setStatus('Could not start refresh.');
+      btn.disabled = false;
+      return;
+    }
+    await pollRefreshStatus();
   } catch (e) {
     setStatus('Refresh failed: ' + e);
-  } finally {
     btn.disabled = false;
-    loadCards();
   }
+}
+
+function pollRefreshStatus() {
+  return new Promise((resolve) => {
+    const tick = async () => {
+      let job;
+      try {
+        const res = await af('/api/refresh/status?profile_id=' + state.viewingProfileId);
+        job = await res.json();
+      } catch (e) {
+        setStatus('Lost track of refresh progress: ' + e);
+        document.getElementById('refreshBtn').disabled = false;
+        resolve();
+        return;
+      }
+      if (job.running) {
+        setStatus(`Refreshing prices -- ${job.done}/${job.total} done...`);
+        setTimeout(tick, 2000);
+        return;
+      }
+      const updated = job.updated || [], failed = job.failed || [];
+      setStatus(`Refreshed ${updated.length} card(s).` + (failed.length ? ` ${failed.length} failed -- try refreshing them individually.` : ''));
+      document.getElementById('refreshBtn').disabled = false;
+      loadCards();
+      resolve();
+    };
+    tick();
+  });
 }
 
 async function refreshOne(id) {
