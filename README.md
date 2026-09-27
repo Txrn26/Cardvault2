@@ -202,7 +202,20 @@ manufacturer/insert before giving up. An estimated price is marked with a
 small `~` in the collection table (hover for the reason) and is never
 allowed to overwrite a grade that already has a real, listing-derived
 price -- the moment real listings for that grade do show up on a later
-refresh, they replace the estimate outright. Like the grade and
+refresh, they replace the estimate outright.
+
+Pooling like this has a real bias worth knowing about: grading a card
+costs $15-50+, so almost nobody bothers unless it's expected to be worth
+meaningfully more graded -- an ordinary common essentially never gets
+submitted. Pool a sample that mixes commons and rarities, and the few
+graded listings that exist skew toward the expensive end while the
+Ungraded side stays full of cheap commons, which can produce a wildly
+inflated ratio that isn't a real market signal. A rough sanity ceiling
+per grade (`ebay_api.py`'s `_MAX_RATIO_BY_GRADE`) catches and discards a
+ratio that's clearly an artifact of this rather than a believable
+premium -- meaning a cheap common genuinely may just stay blank with no
+estimate at all, which is the honest answer when there's no representative
+data for what a card like it actually sells for graded. Like the grade and
 lot-detection matching above, comparable-card matching is a title-text
 heuristic (`ebay_api.py`'s `_comparable_signature`/`_get_ratio_profile`),
 not a real product catalog -- an unrecognized manufacturer skips

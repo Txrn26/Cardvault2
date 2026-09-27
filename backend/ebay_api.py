@@ -574,6 +574,30 @@ _MIN_SAMPLE_SIZE = 3
 _ratio_cache_lock = Lock()
 _ratio_cache: dict[tuple, tuple[float, dict]] = {}
 
+# Pooling (below) can come out wildly inflated by a real selection bias in
+# what actually gets professionally graded: grading costs roughly $15-50+
+# per card, so almost nobody submits an ordinary common for it -- only a
+# card expected to be worth meaningfully more graded (a rare parallel, a
+# hyped rookie). Pool a sample that mixes commons and rarities together
+# (exactly what any real product-line search does), and the few graded
+# listings that exist skew toward the expensive end while the Ungraded
+# side stays dominated by cheap commons -- confirmed against Production:
+# several ordinary $1.49-$3.99 commons all came back estimated at
+# $50-$400+ PSA 10, the *same* ~33x multiplier applied uniformly across
+# unrelated cards, which is the signature of one skewed pooled ratio
+# getting reused rather than any of them individually being worth that.
+# These caps are a rough safety ceiling based on typical hobby experience,
+# not derived from data -- their only job is to catch a ratio that's
+# clearly a pooling artifact rather than a believable grading premium. A
+# ratio over its cap is discarded outright (same "fail safe, leave it
+# blank rather than guess wrong" rule this whole feature already follows),
+# not clipped down to the cap -- a number this codebase can't stand behind
+# even loosely isn't worth showing at all.
+_MAX_RATIO_BY_GRADE = {
+    "Grade 7": 3.0, "Grade 8": 4.0, "Grade 9": 6.0,
+    "Grade 9.5": 8.0, "PSA 10": 12.0, "BGS 10": 15.0,
+}
+
 
 def _get_ratio_profile(year: str, manufacturer: str, insert: str | None) -> dict:
     """{grade: ratio-to-Ungraded}, computed by pooling every listing found
@@ -618,8 +642,11 @@ def _get_ratio_profile(year: str, manufacturer: str, insert: str | None) -> dict
         ungraded_median = statistics.median(ungraded_prices)
         if ungraded_median > 0:
             for grade, prices in buckets.items():
-                if grade != "Ungraded" and len(prices) >= _MIN_SAMPLE_SIZE:
-                    profile[grade] = round(statistics.median(prices) / ungraded_median, 3)
+                if grade == "Ungraded" or len(prices) < _MIN_SAMPLE_SIZE:
+                    continue
+                ratio = statistics.median(prices) / ungraded_median
+                if ratio <= _MAX_RATIO_BY_GRADE.get(grade, ratio):
+                    profile[grade] = round(ratio, 3)
 
     with _ratio_cache_lock:
         _ratio_cache[key] = (now, profile)
