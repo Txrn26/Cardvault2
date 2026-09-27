@@ -390,10 +390,28 @@ def _merge_with_estimates(conn, card_id: int, title: str, real_prices: dict) -> 
     unchanged for add/import too), stays eligible for re-estimation every
     cycle; the moment a real search does return listings for it, it's no
     longer "missing" from real_prices and the real value wins outright --
-    this self-heals with no separate cleanup step."""
+    this self-heals with no separate cleanup step.
+
+    The one case that does need an explicit cleanup step: a grade that WAS
+    estimated before but comes back with nothing this cycle -- neither real
+    data nor a fresh estimate (e.g. ebay_api's sanity cap now rejects a
+    ratio it used to accept, or the comparable data just dried up). merged
+    simply won't contain that grade at all in that case, and set_prices()
+    only ever inserts/updates rows for grades it's given -- it never
+    deletes -- so without this, an old, no-longer-supported estimate would
+    sit in the DB forever showing a stale number. Confirmed the hard way: a
+    ratio-sanity-cap fix that correctly stopped producing a bogus estimate
+    still left the previous (wrong) number on screen until this existed."""
     existing = db.get_price_rows(conn, card_id)
     protect = frozenset(g for g, info in existing.items() if not info["estimated"])
-    return ebay_api.fill_missing_grades(title, real_prices, protect)
+    merged, estimated = ebay_api.fill_missing_grades(title, real_prices, protect)
+
+    previously_estimated = {g for g, info in existing.items() if info["estimated"]}
+    stale = previously_estimated - set(merged.keys())
+    if stale:
+        db.delete_price_rows(conn, card_id, list(stale))
+
+    return merged, estimated
 
 
 @app.post("/api/cards")

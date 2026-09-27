@@ -357,6 +357,24 @@ def get_price_rows(conn, card_id) -> dict:
     return {r["grade"]: {"price": r["price"], "estimated": bool(r["estimated"])} for r in rows}
 
 
+def delete_price_rows(conn, card_id, grades):
+    """Removes specific grade rows outright -- set_prices() only ever
+    inserts/updates rows for grades present in what it's given, it never
+    deletes, so a grade whose estimate is no longer supported (e.g. a
+    later refresh's ratio no longer passes ebay_api's sanity cap, or the
+    comparable data dried up) needs this explicit call or its old,
+    now-unsupported number would just sit there forever. See
+    main.py's _merge_with_estimates for the caller that decides when a
+    grade counts as "no longer supported"."""
+    if not grades:
+        return
+    placeholders = ",".join("?" for _ in grades)
+    conn.execute(
+        f"DELETE FROM current_prices WHERE card_id = ? AND grade IN ({placeholders})",
+        (card_id, *grades),
+    )
+
+
 def list_cards(conn, profile_id: int, status: str = "owned"):
     cards = conn.execute(
         """
