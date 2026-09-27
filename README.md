@@ -190,15 +190,20 @@ behind it (same as you'd sanity-check any pricing tool).
 have zero listings for a given grade yet (professional grading takes
 weeks to months after a card releases, so a just-dropped rookie may have
 no PSA 10 sales at all). Rather than leaving that grade blank, it's
-estimated from comparable cards -- others sharing the same year and
-manufacturer (and, if recognized from a small curated list, the same
-insert/subset) -- by scaling this card's own real Ungraded price by that
-comparable set's typical grade-premium ratio. An estimated price is
-marked with a small `~` in the collection table (hover for the reason)
-and is never allowed to overwrite a grade that already has a real,
-listing-derived price -- the moment real listings for that grade do show
-up on a later refresh, they replace the estimate outright. Like the grade
-and lot-detection matching above, comparable-card matching is a title-text
+estimated: pool every listing found for the same year and manufacturer
+(and, if recognized from a small curated list, the same insert/subset) --
+across whichever different cards/players happen to be in that sample --
+into the same per-grade buckets used for one card's own pricing, then
+scale this card's own real Ungraded price by that pooled set's
+grade-to-Ungraded ratio. If the exact year comes up without enough real
+graded sales (common for a just-released year, industry-wide, not just
+for one card), the search widens to recent prior years of the same
+manufacturer/insert before giving up. An estimated price is marked with a
+small `~` in the collection table (hover for the reason) and is never
+allowed to overwrite a grade that already has a real, listing-derived
+price -- the moment real listings for that grade do show up on a later
+refresh, they replace the estimate outright. Like the grade and
+lot-detection matching above, comparable-card matching is a title-text
 heuristic (`ebay_api.py`'s `_comparable_signature`/`_get_ratio_profile`),
 not a real product catalog -- an unrecognized manufacturer skips
 estimation for that card entirely rather than guessing from too little.

@@ -314,18 +314,29 @@ def _is_multi_card_listing(title: str) -> bool:
     return bool(_LOT_PATTERN.search(title))
 
 
-def _grade_price_table(items: list[dict]) -> dict:
-    """Median price per grade bucket, from a list of already-fetched,
-    already-filtered eBay item dicts (token match + lot filter both
-    applied by the caller). Pulled out on its own since both search()'s
-    per-group tables and fetch_grade_prices()'s single table need exactly
-    this same bucket-then-median step."""
+def _grade_buckets(items: list[dict]) -> dict[str, list[float]]:
+    """{grade: [price, price, ...]} -- every already-fetched, already-
+    filtered listing's price, bucketed by grade. The raw lists (not yet
+    reduced to a median) since both _grade_price_table below and the
+    ratio-profile code need this same classify-and-bucket step, but the
+    ratio code also needs each bucket's actual *count* (see the comment
+    on _get_ratio_profile) which a pre-computed median throws away."""
     buckets: dict[str, list[float]] = {g: [] for g in GRADE_COLUMNS}
     for item in items:
         grade = _classify_grade(item.get("title", ""))
         price = _extract_price(item)
         if grade and price is not None:
             buckets[grade].append(price)
+    return buckets
+
+
+def _grade_price_table(items: list[dict]) -> dict:
+    """Median price per grade bucket, from a list of already-fetched,
+    already-filtered eBay item dicts (token match + lot filter both
+    applied by the caller). Pulled out on its own since both search()'s
+    per-group tables and fetch_grade_prices()'s single table need exactly
+    this same bucket-then-median step."""
+    buckets = _grade_buckets(items)
     return {grade: round(statistics.median(prices), 2) for grade, prices in buckets.items() if prices}
 
 
@@ -559,22 +570,37 @@ def _comparable_signature(title: str) -> tuple[str, str, str | None] | None:
 # from re-running the comparable search once per card that happens to
 # share a signature, instead of once per distinct signature.
 _RATIO_CACHE_TTL_SECONDS = 21600  # 6h
-_MIN_COMPARABLE_CARDS = 3
+_MIN_SAMPLE_SIZE = 3
 _ratio_cache_lock = Lock()
 _ratio_cache: dict[tuple, tuple[float, dict]] = {}
 
 
 def _get_ratio_profile(year: str, manufacturer: str, insert: str | None) -> dict:
-    """{grade: ratio-to-Ungraded}, computed from other cards sharing this
-    (year, manufacturer[, insert]) signature. Every ratio is anchored to
-    that *same comparable card's own* real Ungraded price specifically
-    (not "whatever grade happened to be its lowest") -- a comparable
-    lacking a real Ungraded price of its own is skipped rather than
-    anchored to some other grade, since ratios computed against different
-    baselines aren't actually comparable to each other and averaging them
-    would be quietly wrong, not just noisy. Requires >= _MIN_COMPARABLE_CARDS
-    comparables to agree on a grade before trusting it; grades that don't
-    clear that bar are simply left out of the profile."""
+    """{grade: ratio-to-Ungraded}, computed by pooling every listing found
+    for this (year, manufacturer[, insert]) signature -- across whichever
+    different cards/players happen to be in the sample -- into the same
+    grade buckets _grade_price_table uses for one card, then taking the
+    ratio of each grade's pooled median to Ungraded's pooled median.
+
+    This is a deliberate correction from an earlier version that instead
+    required the *same specific card* to carry both an Ungraded and a
+    graded listing before it could contribute a ratio (via clustering,
+    same idea as search()'s grouping). That was statistically close to
+    unusable in practice -- confirmed against Production: a 200-listing
+    "2024 topps" sample spans well over a hundred *distinct* real cards
+    (correctly not merged by the clustering, since they really are
+    different cards), so almost none of them individually had more than
+    1-2 listings, let alone both a graded and an Ungraded one of the same
+    exact card. Pooling instead assumes the grading premium is roughly
+    uniform across an entire product line/year rather than needing to be
+    proven card-by-card -- a real trade-off (this can't see if one
+    specific insert grades at an unusually different premium than the
+    product line as a whole), but it's the only version of this that
+    actually finds real data, and it's the same simplifying assumption
+    "comparable cards" already implies. Requires >= _MIN_SAMPLE_SIZE
+    listings actually observed in a grade bucket (not _MIN_SAMPLE_SIZE
+    *cards*) before trusting it; a thinly-represented grade is simply
+    left out of the profile rather than estimated from 1-2 data points."""
     key = (year, manufacturer, insert)
     now = time.time()
     with _ratio_cache_lock:
@@ -584,24 +610,17 @@ def _get_ratio_profile(year: str, manufacturer: str, insert: str | None) -> dict
 
     query = " ".join(filter(None, [year, manufacturer, insert]))
     items = _fetch_filtered_items(query, 200)
-    clusters = _cluster_by_card(items)
+    buckets = _grade_buckets(items)
 
-    ratios: dict[str, list[float]] = {g: [] for g in GRADE_COLUMNS if g != "Ungraded"}
-    for cluster in clusters:
-        if len(cluster["items"]) < 2:
-            continue  # a single listing is too noisy to trust as its own "comparable card"
-        table = _grade_price_table(cluster["items"])
-        ungraded = table.get("Ungraded")
-        if not ungraded or ungraded <= 0:
-            continue
-        for grade, price in table.items():
-            if grade != "Ungraded":
-                ratios[grade].append(price / ungraded)
+    profile = {}
+    ungraded_prices = buckets.get("Ungraded", [])
+    if len(ungraded_prices) >= _MIN_SAMPLE_SIZE:
+        ungraded_median = statistics.median(ungraded_prices)
+        if ungraded_median > 0:
+            for grade, prices in buckets.items():
+                if grade != "Ungraded" and len(prices) >= _MIN_SAMPLE_SIZE:
+                    profile[grade] = round(statistics.median(prices) / ungraded_median, 3)
 
-    profile = {
-        grade: round(statistics.median(values), 3)
-        for grade, values in ratios.items() if len(values) >= _MIN_COMPARABLE_CARDS
-    }
     with _ratio_cache_lock:
         _ratio_cache[key] = (now, profile)
     return profile
@@ -626,7 +645,7 @@ def _broaden_and_retry(year: str, manufacturer: str, insert: str | None) -> dict
     reasonably well year-over-year for the same manufacturer/insert, which
     is what makes this a defensible broadening rather than a guess from an
     unrelated product -- every attempt here still requires
-    _MIN_COMPARABLE_CARDS real comparables to agree, same as the exact
+    _MIN_SAMPLE_SIZE real listings in a grade bucket, same as the exact
     match. Each attempt is its own cached signature (_get_ratio_profile),
     so a whole collection refresh still only pays for a given signature's
     search once."""
