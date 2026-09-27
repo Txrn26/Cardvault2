@@ -587,24 +587,35 @@ _ratio_cache: dict[tuple, tuple[float, dict]] = {}
 # unrelated cards, which is the signature of one skewed pooled ratio
 # getting reused rather than any of them individually being worth that.
 # These caps are a rough safety ceiling based on typical hobby experience,
-# not derived from data -- their only job is to catch a ratio that's
-# clearly a pooling artifact rather than a believable grading premium. A
-# ratio over its cap is discarded outright (same "fail safe, leave it
-# blank rather than guess wrong" rule this whole feature already follows),
-# not clipped down to the cap -- a number this codebase can't stand behind
-# even loosely isn't worth showing at all.
+# not derived from data -- their job is to separate a ratio that's a
+# believable grading premium (-> "high" confidence, shown as a normal
+# estimate) from one that's likely a pooling artifact rather than
+# something a common card would actually fetch (-> "low" confidence, still
+# shown but flagged much more visibly -- see fill_missing_grades). Above
+# _LOW_CONFIDENCE_MULTIPLIER times even the loose ceiling, a ratio is
+# discarded outright rather than shown at any confidence -- confirmed
+# against Production that this two-tier split is necessary, not just
+# stylistic: even a full year later (2025), the only graded listings that
+# exist for an ordinary Topps product line still price at ~30x Ungraded
+# (3 PSA 10 listings out of 168 sampled) -- there is no real "confident"
+# number to find here for a common card, because almost nobody grades one
+# at any point in its life, not just when it's brand new. A rough,
+# clearly-labeled guess beats nothing for a collector who wants a
+# ballpark, as long as it's never confused for a real median.
 _MAX_RATIO_BY_GRADE = {
     "Grade 7": 3.0, "Grade 8": 4.0, "Grade 9": 6.0,
     "Grade 9.5": 8.0, "PSA 10": 12.0, "BGS 10": 15.0,
 }
+_LOW_CONFIDENCE_MULTIPLIER = 4.0
 
 
 def _get_ratio_profile(year: str, manufacturer: str, insert: str | None) -> dict:
-    """{grade: ratio-to-Ungraded}, computed by pooling every listing found
-    for this (year, manufacturer[, insert]) signature -- across whichever
-    different cards/players happen to be in the sample -- into the same
-    grade buckets _grade_price_table uses for one card, then taking the
-    ratio of each grade's pooled median to Ungraded's pooled median.
+    """{grade: {"ratio": float, "confidence": "high" | "low"}}, computed by
+    pooling every listing found for this (year, manufacturer[, insert])
+    signature -- across whichever different cards/players happen to be in
+    the sample -- into the same grade buckets _grade_price_table uses for
+    one card, then taking the ratio of each grade's pooled median to
+    Ungraded's pooled median.
 
     This is a deliberate correction from an earlier version that instead
     required the *same specific card* to carry both an Ungraded and a
@@ -623,8 +634,9 @@ def _get_ratio_profile(year: str, manufacturer: str, insert: str | None) -> dict
     actually finds real data, and it's the same simplifying assumption
     "comparable cards" already implies. Requires >= _MIN_SAMPLE_SIZE
     listings actually observed in a grade bucket (not _MIN_SAMPLE_SIZE
-    *cards*) before trusting it; a thinly-represented grade is simply
-    left out of the profile rather than estimated from 1-2 data points."""
+    *cards*) before trusting it at all, at either confidence tier; a
+    thinly-represented grade is simply left out of the profile rather than
+    estimated from 1-2 data points."""
     key = (year, manufacturer, insert)
     now = time.time()
     with _ratio_cache_lock:
@@ -645,8 +657,14 @@ def _get_ratio_profile(year: str, manufacturer: str, insert: str | None) -> dict
                 if grade == "Ungraded" or len(prices) < _MIN_SAMPLE_SIZE:
                     continue
                 ratio = statistics.median(prices) / ungraded_median
-                if ratio <= _MAX_RATIO_BY_GRADE.get(grade, ratio):
-                    profile[grade] = round(ratio, 3)
+                cap = _MAX_RATIO_BY_GRADE.get(grade, ratio)
+                if ratio <= cap:
+                    profile[grade] = {"ratio": round(ratio, 3), "confidence": "high"}
+                elif ratio <= cap * _LOW_CONFIDENCE_MULTIPLIER:
+                    profile[grade] = {"ratio": round(ratio, 3), "confidence": "low"}
+                # else: still discarded outright -- past even the loose
+                # ceiling, this reads as bad data (a stray mis-filtered
+                # listing), not just a biased-but-real sample.
 
     with _ratio_cache_lock:
         _ratio_cache[key] = (now, profile)
@@ -699,38 +717,47 @@ def _broaden_and_retry(year: str, manufacturer: str, insert: str | None) -> dict
 
 def fill_missing_grades(
     title: str, real_prices: dict, protect_grades: frozenset = frozenset()
-) -> tuple[dict, set]:
+) -> tuple[dict, set, set]:
     """Fills grades missing from real_prices (and not in protect_grades --
     see the comment at each call site in main.py for why that exists) with
     an estimate: this card's own real Ungraded price, scaled by a
     comparable-cards' grade-premium ratio. Returns (merged_prices,
-    estimated_grade_names); merged_prices is exactly real_prices,
-    untouched, whenever there's no real Ungraded price on this card to
-    anchor an estimate to, or no comparable signature/ratio can be found --
-    fails safe, a grade with nothing real to estimate from is simply left
-    blank, same as before this feature existed, never a guessed number."""
+    estimated_grade_names, low_confidence_grade_names) -- the latter is
+    always a subset of the former, marking which estimates only cleared
+    the *loose* ceiling in _get_ratio_profile, not the normal one (see its
+    docstring for why that distinction matters and can't just be
+    "improved away" for a genuinely thinly-graded card). merged_prices is
+    exactly real_prices, untouched, whenever there's no real Ungraded
+    price on this card to anchor an estimate to, or no comparable
+    signature/ratio can be found at all -- fails safe, a grade with
+    nothing real to estimate from is simply left blank, same as before
+    this feature existed, never a guessed number."""
     baseline = real_prices.get("Ungraded")
     missing = [
         g for g in GRADE_COLUMNS
         if g != "Ungraded" and g not in real_prices and g not in protect_grades
     ]
     if not baseline or baseline <= 0 or not missing:
-        return real_prices, set()
+        return real_prices, set(), set()
 
     signature = _comparable_signature(title)
     if not signature:
-        return real_prices, set()
-    ratios = _get_ratio_profile(*signature)
-    if not ratios:
-        ratios = _broaden_and_retry(*signature)
+        return real_prices, set(), set()
+    profile = _get_ratio_profile(*signature)
+    if not profile:
+        profile = _broaden_and_retry(*signature)
 
     merged = dict(real_prices)
     estimated = set()
+    low_confidence = set()
     for grade in missing:
-        if grade in ratios:
-            merged[grade] = round(baseline * ratios[grade], 2)
+        entry = profile.get(grade)
+        if entry:
+            merged[grade] = round(baseline * entry["ratio"], 2)
             estimated.add(grade)
-    return merged, estimated
+            if entry["confidence"] == "low":
+                low_confidence.add(grade)
+    return merged, estimated, low_confidence
 
 
 def fetch_item(item_id: str) -> dict | None:

@@ -210,16 +210,29 @@ meaningfully more graded -- an ordinary common essentially never gets
 submitted. Pool a sample that mixes commons and rarities, and the few
 graded listings that exist skew toward the expensive end while the
 Ungraded side stays full of cheap commons, which can produce a wildly
-inflated ratio that isn't a real market signal. A rough sanity ceiling
-per grade (`ebay_api.py`'s `_MAX_RATIO_BY_GRADE`) catches and discards a
-ratio that's clearly an artifact of this rather than a believable
-premium -- meaning a cheap common genuinely may just stay blank with no
-estimate at all, which is the honest answer when there's no representative
-data for what a card like it actually sells for graded. Like the grade and
-lot-detection matching above, comparable-card matching is a title-text
-heuristic (`ebay_api.py`'s `_comparable_signature`/`_get_ratio_profile`),
-not a real product catalog -- an unrecognized manufacturer skips
-estimation for that card entirely rather than guessing from too little.
+inflated ratio that isn't a real market signal.
+
+Two confidence tiers handle this rather than one blunt cutoff. A rough
+sanity ceiling per grade (`ebay_api.py`'s `_MAX_RATIO_BY_GRADE`) marks the
+difference between a believable premium (shown as a normal estimate,
+`~`) and a ratio that's clearly skewed by this bias but still real,
+observed data (shown as a **low-confidence** estimate, `?`, in a
+different color with a much blunter tooltip warning -- treat this number
+with real skepticism, it's a rough guess, not a market median). Past a
+further, looser ceiling, a ratio is discarded outright rather than shown
+at all -- that far off, it reads as bad data (a stray mis-filtered
+listing), not just a biased-but-real sample. Confirmed against
+Production this two-tier split is necessary, not just belt-and-suspenders:
+even a full year later, the only graded listings that exist for an
+ordinary Topps product line still price around 30x a typical Ungraded
+card -- there may simply never be a *confident* number for a common,
+because almost nobody grades one at any point in its life, but a
+clearly-labeled rough guess still beats nothing for a collector who
+wants a ballpark. Like the grade and lot-detection matching above,
+comparable-card matching is a title-text heuristic (`ebay_api.py`'s
+`_comparable_signature`/`_get_ratio_profile`), not a real product
+catalog -- an unrecognized manufacturer skips estimation for that card
+entirely rather than guessing from too little.
 
 **Call budget.** eBay's APIs have no separate paid tier to buy your way
 past this -- API access itself is free either way, the only lever is a

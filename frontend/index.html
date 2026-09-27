@@ -166,6 +166,7 @@
   .result-prices .grade-chip .g { color: var(--text); }
   .result-prices .grade-chip.primary .g { color: var(--accent); font-weight: 600; }
   .est-marker { color: var(--muted); font-style: italic; cursor: help; }
+  .est-marker.low-conf { color: var(--down); font-weight: 700; font-style: normal; }
   .result-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 2px; }
   .result-card .detail-link { font-size: 11px; color: var(--accent); text-decoration: none; align-self: center; }
   .result-card .detail-link:hover { text-decoration: underline; }
@@ -990,12 +991,22 @@ function renderCards() {
         const cls = isPrimary ? 'num' : `num secondary-grade${state.expandedCards.has(c.id) ? ' expanded' : ''}`;
         // no real eBay listings exist yet for this grade -- the price is
         // approximated from comparable cards instead (see
-        // ebay_api.fill_missing_grades) -- marked distinctly rather than
-        // shown as if it were a real listing-derived median.
-        const isEst = (c.estimated_grades || []).includes(g);
-        const marker = isEst
-          ? ` <span class="est-marker" title="Estimated from comparable cards -- no listings found for this grade yet">~</span>`
-          : '';
+        // ebay_api.fill_missing_grades). Two distinct tiers, never shown
+        // the same way: a normal estimate (~) cleared ebay_api's regular
+        // sanity check; a low-confidence one (?) only cleared its much
+        // looser ceiling -- real for genuinely thinly-graded product
+        // lines (confirmed against Production: even a full year later,
+        // the only graded sales that exist for an ordinary common still
+        // price wildly above what it'd realistically fetch), but rough
+        // enough it should never be mistaken for a real median.
+        const isLowConf = (c.low_confidence_grades || []).includes(g);
+        const isEst = !isLowConf && (c.estimated_grades || []).includes(g);
+        let marker = '';
+        if (isLowConf) {
+          marker = ` <span class="est-marker low-conf" title="Rough guess only -- very little comparable graded data exists for this card, treat this number with real skepticism">?</span>`;
+        } else if (isEst) {
+          marker = ` <span class="est-marker" title="Estimated from comparable cards -- no listings found for this grade yet">~</span>`;
+        }
         return `<td class="${cls}" data-label="${g}">${fmt(c.prices[g])}${marker}</td>`;
       }).join('')}
       <td class="mobile-toggle-cell" onclick="toggleCardExpanded(${c.id})">${state.expandedCards.has(c.id) ? '▴ Fewer grades' : '▾ More grades'}</td>

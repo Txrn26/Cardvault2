@@ -77,6 +77,12 @@ CREATE TABLE IF NOT EXISTS current_prices (
     -- data (estimated=0) is never silently overwritten by a later estimate;
     -- see the comment above the set_prices() call sites in main.py.
     estimated INTEGER NOT NULL DEFAULT 0,
+    -- meaningful only when estimated=1: 1 when the comparable data behind
+    -- this estimate only cleared ebay_api's *loose* sanity ceiling, not
+    -- its normal one -- a much rougher guess than an ordinary estimate,
+    -- shown with a stronger warning in the UI rather than silently
+    -- treated the same as a confident one. Always 0 for real data.
+    low_confidence INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (card_id, grade)
 );
 """
@@ -152,6 +158,9 @@ def init_db():
             if "estimated" not in price_cols:
                 print("[db] adding estimated column to current_prices (existing prices are all real)...")
                 conn.execute("ALTER TABLE current_prices ADD COLUMN estimated INTEGER NOT NULL DEFAULT 0")
+            if "low_confidence" not in price_cols:
+                print("[db] adding low_confidence column to current_prices...")
+                conn.execute("ALTER TABLE current_prices ADD COLUMN low_confidence INTEGER NOT NULL DEFAULT 0")
             return  # already on the current schema
 
         # pre-profile install: rebuild the table and carry existing rows into
@@ -328,33 +337,48 @@ def update_card(conn, profile_id: int, card_id: int, quantity: int, graded_as: s
     )
 
 
-def set_prices(conn, card_id, prices: dict, fetched_at: str, estimated_grades: set | None = None):
+def set_prices(conn, card_id, prices: dict, fetched_at: str,
+                estimated_grades: set | None = None, low_confidence_grades: set | None = None):
     """estimated_grades -- the subset of `prices`' keys that came from
-    ebay_api.fill_missing_grades() rather than a real listing median. Every
-    other grade here is written as estimated=0 (real) -- callers that don't
-    pass this at all (nothing currently does besides the estimation-aware
+    ebay_api.fill_missing_grades() rather than a real listing median.
+    low_confidence_grades -- the subset of *those* that only cleared
+    fill_missing_grades'/_get_ratio_profile's loose sanity ceiling, not the
+    normal one (must be a subset of estimated_grades; ignored for any
+    grade not also in estimated_grades). Every other grade here is written
+    as estimated=0, low_confidence=0 (real) -- callers that don't pass
+    either at all (nothing currently does besides the estimation-aware
     call sites) get the old real-only behavior unchanged."""
     estimated_grades = estimated_grades or set()
+    low_confidence_grades = low_confidence_grades or set()
     for grade, price in prices.items():
         conn.execute(
-            "INSERT INTO current_prices (card_id, grade, price, updated_at, estimated) "
-            "VALUES (?, ?, ?, ?, ?) "
+            "INSERT INTO current_prices (card_id, grade, price, updated_at, estimated, low_confidence) "
+            "VALUES (?, ?, ?, ?, ?, ?) "
             "ON CONFLICT(card_id, grade) DO UPDATE SET price=excluded.price, "
-            "updated_at=excluded.updated_at, estimated=excluded.estimated",
-            (card_id, grade, price, fetched_at, int(grade in estimated_grades)),
+            "updated_at=excluded.updated_at, estimated=excluded.estimated, "
+            "low_confidence=excluded.low_confidence",
+            (card_id, grade, price, fetched_at,
+             int(grade in estimated_grades), int(grade in low_confidence_grades)),
         )
 
 
 def get_price_rows(conn, card_id) -> dict:
-    """{grade: {"price": .., "estimated": bool}} for one card -- used to
-    compute protect_grades before a refresh calls fill_missing_grades(),
-    so a grade that already holds a real price is never overwritten by a
-    later estimate (see the comment on that call in main.py)."""
+    """{grade: {"price": .., "estimated": bool, "low_confidence": bool}}
+    for one card -- used to compute protect_grades before a refresh calls
+    fill_missing_grades(), so a grade that already holds a real price is
+    never overwritten by a later estimate (see the comment on that call in
+    main.py)."""
     rows = conn.execute(
-        "SELECT grade, price, estimated FROM current_prices WHERE card_id = ?",
+        "SELECT grade, price, estimated, low_confidence FROM current_prices WHERE card_id = ?",
         (card_id,),
     ).fetchall()
-    return {r["grade"]: {"price": r["price"], "estimated": bool(r["estimated"])} for r in rows}
+    return {
+        r["grade"]: {
+            "price": r["price"], "estimated": bool(r["estimated"]),
+            "low_confidence": bool(r["low_confidence"]),
+        }
+        for r in rows
+    }
 
 
 def delete_price_rows(conn, card_id, grades):
@@ -388,13 +412,17 @@ def list_cards(conn, profile_id: int, status: str = "owned"):
     result = []
     for card in cards:
         prices = conn.execute(
-            "SELECT grade, price, updated_at, estimated FROM current_prices WHERE card_id = ?",
+            "SELECT grade, price, updated_at, estimated, low_confidence FROM current_prices WHERE card_id = ?",
             (card["id"],),
         ).fetchall()
         result.append({
             **dict(card),
             "prices": {p["grade"]: p["price"] for p in prices},
             "estimated_grades": [p["grade"] for p in prices if p["estimated"]],
+            # subset of estimated_grades -- a much rougher guess than an
+            # ordinary estimate, see ebay_api._get_ratio_profile's
+            # docstring for why this distinction exists and matters.
+            "low_confidence_grades": [p["grade"] for p in prices if p["low_confidence"]],
             "last_updated": max((p["updated_at"] for p in prices), default=None),
         })
     return result
