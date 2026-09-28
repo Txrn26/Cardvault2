@@ -167,6 +167,7 @@
   .result-prices .grade-chip.primary .g { color: var(--accent); font-weight: 600; }
   .est-marker { color: var(--muted); font-style: italic; cursor: help; }
   .est-marker.low-conf { color: var(--down); font-weight: 700; font-style: normal; }
+  .deal-badge { color: var(--up); font-weight: 700; }
   .result-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 2px; }
   .result-card .detail-link { font-size: 11px; color: var(--accent); text-decoration: none; align-self: center; }
   .result-card .detail-link:hover { text-decoration: underline; }
@@ -309,6 +310,7 @@
     <div class="tab" id="tabDashboard" onclick="switchView('dashboard')">Dashboard</div>
     <div class="tab active" id="tabCollection" onclick="switchView('collection')">Collection</div>
     <div class="tab" id="tabWishlist" onclick="switchView('wishlist')">Wishlist</div>
+    <div class="tab" id="tabDeals" onclick="switchView('deals')">Deal Finder</div>
   </nav>
 
   <div class="folder-bar" id="folderBar"></div>
@@ -356,6 +358,25 @@
     </div>
 
     <div id="dashboardView" style="display:none"></div>
+
+    <div id="dealsView" style="display:none">
+      <div class="hint">Searches current eBay listings for one card and flags graded copies
+        priced well below what other listings of that same grade are asking in the same
+        search -- a shortcut for spotting a probably-underpriced listing, not a guarantee
+        (see the Deal Finder note in the README for the honest limits of this).</div>
+      <div id="dealFilters" class="search-filters">
+        <select id="dealCardType">
+          <option value="261328">Sports Trading Cards</option>
+          <option value="183454">TCG / Non-Sport Cards</option>
+        </select>
+        <input id="dealQuery" placeholder="Card name, e.g. Mookie Betts 2024 Topps Chrome" style="flex:1; min-width:220px" autocomplete="off">
+        <span class="filter-hint" style="align-self:center;">at least</span>
+        <input id="dealThreshold" type="number" min="1" max="90" value="35" style="width:60px">
+        <span class="filter-hint" style="align-self:center;">% below market</span>
+        <button onclick="runDealSearch()">Find Deals</button>
+      </div>
+      <div id="dealResults" class="result-grid"></div>
+    </div>
   </main>
 </div>
 
@@ -770,10 +791,12 @@ async function switchView(view) {
   document.getElementById('tabCollection').classList.toggle('active', view === 'collection');
   document.getElementById('tabWishlist').classList.toggle('active', view === 'wishlist');
   document.getElementById('tabDashboard').classList.toggle('active', view === 'dashboard');
+  document.getElementById('tabDeals').classList.toggle('active', view === 'deals');
 
   const showTable = view === 'collection' || view === 'wishlist';
   document.getElementById('collectionView').style.display = showTable ? 'block' : 'none';
   document.getElementById('dashboardView').style.display = view === 'dashboard' ? 'block' : 'none';
+  document.getElementById('dealsView').style.display = view === 'deals' ? 'block' : 'none';
   document.getElementById('folderBar').style.display = showTable ? 'flex' : 'none';
   document.getElementById('searchBarRow').style.display = showTable ? 'flex' : 'none';
 
@@ -1394,6 +1417,86 @@ async function addFromSearch(i, status) {
   }
   closeSearch();
   setStatus(status === 'owned' ? `Added "${r.title}" to your collection.` : `Saved "${r.title}" to your wishlist.`);
+  loadCards();
+}
+
+// ---------- deal finder ----------
+
+document.getElementById('dealQuery').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') runDealSearch();
+});
+
+async function runDealSearch() {
+  const q = document.getElementById('dealQuery').value.trim();
+  if (q.length < 3) {
+    document.getElementById('dealResults').innerHTML = '<div class="hint">Type at least 3 characters.</div>';
+    return;
+  }
+  const thresholdPct = parseFloat(document.getElementById('dealThreshold').value) || 35;
+  const categoryId = document.getElementById('dealCardType').value;
+  document.getElementById('dealResults').innerHTML = '<div class="hint">Searching -- this can take a few seconds...</div>';
+
+  let deals;
+  try {
+    const url = '/api/deals?q=' + encodeURIComponent(q)
+      + '&threshold=' + encodeURIComponent(thresholdPct)
+      + '&category_id=' + encodeURIComponent(categoryId);
+    const res = await af(url);
+    if (!res.ok) {
+      const err = await res.json();
+      document.getElementById('dealResults').innerHTML = `<div class="hint">${err.detail || 'Search failed.'}</div>`;
+      return;
+    }
+    deals = (await res.json()).deals || [];
+  } catch (e) {
+    document.getElementById('dealResults').innerHTML = '<div class="hint">Search failed: ' + e + '</div>';
+    return;
+  }
+
+  if (!deals.length) {
+    document.getElementById('dealResults').innerHTML =
+      '<div class="hint">No listings found priced that far below market for this search -- try a lower threshold, a broader query, or a different card.</div>';
+    return;
+  }
+
+  window._dealResults = deals;
+  document.getElementById('dealResults').innerHTML = deals.map((d, i) => `
+    <div class="result-card">
+      <img src="${d.image_url_large || d.image_url || ''}" data-fallback="${d.image_url || ''}" onerror="handleSearchImgError(this)">
+      <div class="result-info">
+        <div class="title">${d.title}</div>
+        <div class="source">${d.source} -- ${d.grade}, listed ${fmt(d.price)} vs a ${fmt(d.market_median)} median for that grade
+          (<span class="deal-badge">${d.percent_below}% below market</span>)</div>
+        <div class="result-actions">
+          <a class="detail-link" href="${d.url}" target="_blank" rel="noopener">View listing ↗</a>
+          <button onclick="addFromDeal(${i}, 'owned')">+ Add to collection</button>
+          <button class="wishlist-btn" onclick="addFromDeal(${i}, 'wanted')">🔖 Save to Wishlist</button>
+        </div>
+      </div>
+    </div>
+  `).join('');
+}
+
+async function addFromDeal(i, status) {
+  const d = window._dealResults[i];
+  let qty = 1;
+  if (status === 'owned') {
+    qty = parseInt(prompt(`How many copies of "${d.title}" do you own?`, '1') || '1', 10);
+    if (!qty || qty < 1) return;
+  }
+  const res = await af('/api/cards', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({
+      item_id: d.item_id, quantity: qty, profile_id: state.viewingProfileId,
+      folder_id: state.folderId, status,
+    })
+  });
+  if (!res.ok) {
+    const err = await res.json();
+    alert(err.detail || 'Could not add that card.');
+    return;
+  }
+  setStatus(status === 'owned' ? `Added "${d.title}" to your collection.` : `Saved "${d.title}" to your wishlist.`);
   loadCards();
 }
 

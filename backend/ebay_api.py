@@ -811,3 +811,86 @@ def find_product_for_csv_row(product_name: str, console_name: str) -> dict | Non
         return None
     time.sleep(REQUEST_DELAY)
     return fetch_card_details(results[0]["item_id"])
+
+
+# ---- deal finder: underpriced graded listings ----
+#
+# Same real listings one search already pulls, but instead of grouping
+# them into distinct cards (search()'s job), this flags any individual
+# *graded* listing priced meaningfully below what other listings of that
+# exact grade are asking in the same search -- a shortcut for "which of
+# these is probably underpriced," meant to speed up manually eyeballing a
+# results page and doing the percentage math by hand.
+#
+# Deliberately scoped to graded cards only (Ungraded excluded) -- that's
+# what was asked for, and it's also a materially sounder comparison: a
+# specific numeric grade is a much more comparable, liquid thing to price
+# against another listing of that same grade than a raw card is, where
+# real condition varies listing to listing in ways a title can't capture.
+#
+# Statistically this stands on firmer ground than the comparable-card
+# estimation above: every price being compared is a real, current listing
+# of the literal same grade, from the *same single search* (one card, one
+# query) -- not pooled across an entire product line's worth of different
+# cards the way a missing-grade estimate has to be. It still shares that
+# feature's basic caveat, though: a market this thin can have its "typical
+# price" skewed by a small, self-selected sample (whoever happens to be
+# listing right now), so this is a shortcut for spotting a probable deal
+# worth a closer look, not a guarantee the listing is actually
+# underpriced (a seller may have a real reason -- a flaw a title doesn't
+# mention, a slow shipping time, a return policy) or that it'll still be
+# available once you look.
+_DEAL_MIN_SAMPLE_SIZE = 3  # same bar _get_ratio_profile uses before trusting a median
+
+
+def find_deals(
+    query: str, threshold: float = 0.35, sample_size: int = 200, category_id: str | None = None
+) -> list[dict]:
+    """Graded listings from one search priced at least `threshold` (0.35 =
+    35%) below the median price other listings of that same grade are
+    asking in the same search. One eBay call total, same cost as a normal
+    search -- this only changes what's done with the results, not how many
+    are fetched."""
+    items = _fetch_filtered_items(query, sample_size, category_id)
+
+    # group by grade so each grade's own median comes only from real
+    # listings actually classified into it -- never from a different
+    # grade's prices, and never pooled across different cards the way
+    # fill_missing_grades' cross-card comparables are (this is one card's
+    # own search results).
+    by_grade: dict[str, list[dict]] = {g: [] for g in GRADE_COLUMNS if g != "Ungraded"}
+    for item in items:
+        grade = _classify_grade(item.get("title", ""))
+        price = _extract_price(item)
+        if grade and grade != "Ungraded" and price is not None:
+            by_grade[grade].append({"item": item, "price": price})
+
+    deals = []
+    for grade, entries in by_grade.items():
+        if len(entries) < _DEAL_MIN_SAMPLE_SIZE:
+            continue  # too few listings of this grade in this search to trust a median against
+        market_median = statistics.median(e["price"] for e in entries)
+        if market_median <= 0:
+            continue
+        for entry in entries:
+            price = entry["price"]
+            pct_below = 1 - (price / market_median)
+            if pct_below < threshold:
+                continue
+            item = entry["item"]
+            image_url = _extract_image(item)
+            deals.append({
+                "title": item.get("title", ""),
+                "item_id": item.get("itemId"),
+                "url": item.get("itemAffiliateWebUrl") or item.get("itemWebUrl"),
+                "image_url": image_url,
+                "image_url_large": image_url,
+                "category": _extract_category(item),
+                "grade": grade,
+                "price": price,
+                "market_median": round(market_median, 2),
+                "percent_below": round(pct_below * 100, 1),
+                "source": "eBay",
+            })
+    deals.sort(key=lambda d: d["percent_below"], reverse=True)
+    return deals

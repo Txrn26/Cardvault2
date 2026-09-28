@@ -156,6 +156,23 @@ built to be reasonable for more than just one trusted household now.
   (see "How it gets the data" for the cost of this).
 - Each row shows a small bar "curve" across all seven grades so you can
   eyeball where the value jump actually happens for that card.
+- **Deal Finder tab** -- searches current eBay listings for one card and
+  flags any *graded* copy priced at least a chosen percentage (35% by
+  default) below what other listings of that same grade are asking in
+  the same search -- a shortcut for spotting a probably-underpriced
+  listing worth a closer look, meant to speed up what you'd otherwise do
+  by eyeballing a results page and doing the percentage math by hand.
+  Scoped to graded cards only (a specific numeric grade is a far more
+  comparable, liquid thing to price against another listing of that same
+  grade than a raw card is, where real condition varies listing to
+  listing in ways a title can't capture), and only flags a grade once at
+  least 3 listings of it turn up in that search -- too few to trust a
+  median against otherwise. One eBay call total, same cost as a normal
+  search. **This is a shortcut, not a guarantee**: a market this thin can
+  have its "typical price" skewed by a small, self-selected sample
+  (whoever happens to be listing right now), and a listing can be cheap
+  for a real reason a title doesn't mention (a flaw, slow shipping, a
+  strict return policy) -- always click through and look before buying.
 
 ## How it gets the data
 

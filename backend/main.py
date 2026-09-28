@@ -381,6 +381,21 @@ def search_cards(q: str, category_id: str | None = None, sess: dict = Depends(cu
     return {"results": ebay_api.search(q.strip(), category_id=category_id)}
 
 
+@app.get("/api/deals")
+def find_deals(q: str, threshold: float = 35, category_id: str | None = None,
+                sess: dict = Depends(current_session)):
+    """Deal Finder tab -- see ebay_api.find_deals()'s docstring for the
+    methodology and its honest limits. `threshold` arrives as a plain
+    percentage (35 = 35% below market, matching the number shown in the
+    UI) and is converted to the 0-1 fraction ebay_api.find_deals() expects."""
+    if not q or len(q.strip()) < 2:
+        raise HTTPException(400, "Query too short")
+    if not (0 < threshold < 100):
+        raise HTTPException(400, "threshold must be between 0 and 100 (e.g. 35 for 35% below market)")
+    _require_ebay_configured()
+    return {"deals": ebay_api.find_deals(q.strip(), threshold=threshold / 100, category_id=category_id)}
+
+
 def _merge_with_estimates(conn, card_id: int, title: str, real_prices: dict) -> tuple[dict, set, set]:
     """Fills any grade real_prices is missing with an estimate from
     comparable cards (ebay_api.fill_missing_grades), but never overwrites a
